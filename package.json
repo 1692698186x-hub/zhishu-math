@@ -1,0 +1,19 @@
+{
+  "name": "zhishu-math",
+  "version": "0.2.0",
+  "private": true,
+  "description": "知数：七年级数学错因诊断与自适应能力提升原型",
+  "license": "CC-BY-NC-4.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node server.cjs",
+    "build": "node build.cjs",
+    "build:pages": "node build.cjs --pages",
+    "test": "node tests.cjs && node learning-tests.cjs && node server-tests.cjs && node ui-tests.cjs"
+  },
+  "devDependencies": {
+    "linkedom": "^0.18.13"
+  }
+}

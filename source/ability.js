@@ -27,7 +27,7 @@
     }
     function evidence(records, id) {
       const all = records.filter(r => r.topicId === id);
-      const scored = all.filter(r => ['correct', 'wrong'].includes(r.outcome) && !r.assisted);
+      const scored = all.filter(r => ['correct', 'wrong'].includes(r.outcome) && !r.assisted && !r.repeated);
       // Repeated exposure to the same item is one piece of evidence, not a new independent success.
       const unique = new Map();
       scored.forEach(r => unique.set(r.questionId, r));

@@ -16,13 +16,13 @@
   // The preview intentionally opens one grade; the full upstream graph remains available for prerequisites.
   db.config = { grade: 7, semester: '上', domain: 'all', limit: 12, trace: true, ...db.config, grade: 7 };
   if (!db.profiles.some(p => p.id === db.activeId)) db.activeId = db.profiles[0].id;
-  let view = 'home', feedback = null, selected = '', message = '', questionStarted = Date.now(), reportFilter = 'all', historyLimit = 30;
+  let view = 'learning', feedback = null, selected = '', message = '', questionStarted = Date.now(), reportFilter = 'all', historyLimit = 30;
   const profile = () => db.profiles.find(p => p.id === db.activeId);
   const currentQ = () => { const c = profile().session?.current; return c ? E.bank[c.topicId].find(q => q.id === c.questionId) : null; };
   function save() { try { localStorage.setItem(KEY, JSON.stringify(db)); } catch (_) { storageOK = false; } }
   const tag = status => '<span class="status-tag tag-' + status + '">' + E.labels[status] + '</span>';
   function header(title, subtitle, eyebrow) { return '<div class="intro"><div><div class="eyebrow">' + eyebrow + '</div><h1>' + title + '</h1><p>' + subtitle + '</p></div><div class="intro-annotation">STEP BY STEP, FIND YOUR WAY.</div></div>'; }
-  function render() {
+  function renderLegacy() {
     const p = profile();
     $('#app').innerHTML = '<div class="layout"><aside class="sidebar"><div class="brand"><div class="brand-mark">' + svg('link') + '</div><div><div class="brand-name">知数</div><div class="brand-tag">MATH · FIND YOUR WAY</div></div></div><div class="side-label">学习空间</div><nav class="nav" aria-label="主导航">' + [['home', 'home', '自适应测评'], ['report', 'chart', '能力报告'], ['practice', 'leaf', '针对性练习'], ['history', 'clock', '答题记录']].map(([v, i, label]) => '<button data-nav="' + v + '" class="' + (view === v || v === 'home' && ['session', 'finished'].includes(view) ? 'active' : '') + '">' + svg(i) + label + '</button>').join('') + '</nav><div class="side-tip"><strong>每一道题，都有方向。</strong>沿着知识之间的联系，找到值得补的那一步。</div><div class="student"><div class="student-line"><div class="avatar">' + esc(p.name.slice(0, 1)) + '</div><div><select id="profile-select" aria-label="切换学生">' + db.profiles.map(x => '<option value="' + esc(x.id) + '"' + (x.id === p.id ? ' selected' : '') + '>' + esc(x.name) + '</option>').join('') + '</select><div style="font-size:9px;color:#9aa58e;margin-left:4px">七年级 · 独立学习记录</div></div></div><button class="new-student" data-action="new-profile">＋ 新建学生</button></div></aside><main class="main"><div class="topbar"><span>学习空间 <span style="margin:0 9px;color:#bac4b2">/</span> 七年级数学</span><div class="topright"><span class="save-label"><i class="status-dot"></i>' + (storageOK ? '记录保存在本机' : '当前记录暂未保存') + '</span><span class="pill">自适应体验版</span></div></div>' + (!storageOK ? '<div class="storage-warning">浏览器暂不允许保存记录。本次仍可使用，请在结束前导出答题记录。</div>' : '') + ({ home: home, report: report, practice: practice, history: history, session: sessionPage, finished: finished }[view] || home)() + '<footer class="footer"><span>知数 · 让每一次练习更有方向</span><span>基于 <a href="https://github.com/xiaoyang111222/cn-math-taxonomy" target="_blank" rel="noopener">cn-math-taxonomy</a> · <a href="https://creativecommons.org/licenses/by-nc/4.0/deed.zh-hans" target="_blank" rel="noopener">CC BY-NC 4.0</a><br>图谱与题库为 AI 初稿，未经教师审核；本次结果是学习线索。</span></footer></main></div>';
     bind();
@@ -121,14 +121,42 @@
   }
   function history() {
     const p = profile();
-    // Hide assessment answers until its session ends, including when navigating away mid-test.
     const activeId = p.session && !p.session.finished && p.session.mode === 'diagnose' ? p.session.id : null;
-    const records = p.records.filter(r => r.sessionId !== activeId).slice().reverse();
-    return header('回头看，每一步都有收获。', '保留真实作答与解析，看看曾经卡在哪里，又是怎样走过来的。', 'YOUR LEARNING JOURNEY') + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px"><span class="subtle">共 ' + p.records.length + ' 条记录' + (activeId ? ' · 本次测评的答案结束后开放' : '') + '</span><button class="secondary" data-action="export">' + svg('download') + ' 导出记录</button></div><section class="card">' + (records.length ? records.slice(0, historyLimit).map(r => { const q = E.bank[r.topicId]?.find(q => q.id === r.questionId); if (!q) return ''; return '<article class="history-entry"><div class="history-head"><div><span class="badge">' + esc(E.byId[r.topicId].name) + '</span><span class="muted" style="font-size:10px;margin-left:9px">' + (r.mode === 'diagnose' ? '测评' : '练习') + ' · ' + new Date(r.at).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) + '</span></div><span class="status-tag ' + (r.outcome === 'correct' ? 'tag-secure' : r.outcome === 'wrong' ? 'tag-weak' : 'tag-unknown') + '">' + ({ correct: '答对', wrong: '未通过', assisted: '已看解析', not_learned: '未学', skip: '跳过' }[r.outcome]) + '</span></div><p class="history-prompt">' + esc(q.prompt) + '</p><div class="history-answer">我的答案：' + esc(r.userAnswer || (r.outcome === 'wrong' ? '暂时不会' : '—')) + '</div><details><summary>查看参考答案和解析</summary><p>参考答案：' + esc(q.answer) + '\n' + esc(q.explanation) + '</p></details></article>'; }).join('') + (records.length > historyLimit ? '<button class="text-btn" data-action="more-history">再显示 30 条</button>' : '') : '<div class="empty">' + svg('clock') + '每一道认真作答的题，都会留在这里。</div>') + '</section>';
+    const activeLearningId = p.learningRun && !p.learningRun.finished && ['diagnose', 'plan'].includes(p.learningRun.phase) ? p.learningRun.id : null;
+    const records = p.records.filter(r => r.sessionId !== activeId && r.sessionId !== activeLearningId).slice().reverse();
+    const rows = records.slice(0, historyLimit).map(r => {
+      const q = E.bank[r.topicId]?.find(q => q.id === r.questionId) || LearningUnit.questions.find(q => q.id === r.questionId);
+      if (!q) return '';
+      const independent = r.outcome === 'correct' && !r.assisted && !r.repeated;
+      const label = r.assisted ? '辅助作答' : r.repeated ? '重复巩固' : ({ correct: '独立通过', wrong: '需要再练', assisted: '已看解析', not_learned: '未学', skip: '跳过' }[r.outcome]);
+      const mode = r.mode === 'learning' ? '能力提升' : r.mode === 'diagnose' ? '测评' : '练习';
+      return '<article class="history-entry"><div class="history-head"><div><span class="badge">' + esc(E.byId[r.topicId].name) + '</span><span class="muted" style="font-size:10px;margin-left:9px">' + mode + ' · ' + new Date(r.at).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) + '</span></div><span class="status-tag ' + (independent ? 'tag-secure' : r.outcome === 'wrong' ? 'tag-weak' : 'tag-checking') + '">' + label + '</span></div><p class="history-prompt">' + esc(q.prompt) + '</p><div class="history-answer">我的答案：' + esc(r.userAnswer || (r.outcome === 'wrong' ? '暂时不会' : '—')) + (r.steps ? '<br>关键步骤：' + esc(r.steps) : '') + (r.hintCount ? '<br>提示次数：' + r.hintCount : '') + '</div>' + (r.coaching ? '<p class="subtle">' + (r.coaching.source === 'ai' ? 'AI 推测' : '本地指导') + '：' + esc(r.coaching.hypothesis) + '（待检查验证）</p>' : '') + '<details><summary>查看参考答案和解析</summary><p>参考答案：' + esc(q.answer) + '<br>' + esc(q.explanation) + '</p></details></article>';
+    }).join('');
+    return header('回头看，每一步都有收获。', '保留真实作答、关键步骤与指导记录，独立完成和辅助作答分开呈现。', 'YOUR LEARNING JOURNEY') + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px"><span class="subtle">共 ' + p.records.length + ' 条记录' + (activeId || activeLearningId ? ' · 进行中的起点短测答案暂不开放' : '') + '</span><button class="secondary" data-action="export">' + svg('download') + ' 导出记录</button></div><section class="card">' + (records.length ? rows + (records.length > historyLimit ? '<button class="text-btn" data-action="more-history">再显示 30 条</button>' : '') : '<div class="empty">' + svg('clock') + '每一道认真作答的题，都会留在这里。</div>') + '</section>';
   }
   function go(nextView) { view = nextView; message = ''; render(); window.scrollTo({ top: 0, behavior: 'instant' }); }
   function showModal(html, ready) { $('#modal-root').innerHTML = '<div class="modal-overlay"><div class="modal" role="dialog" aria-modal="true" aria-label="学生与测评设置">' + html + '</div></div>'; ready?.(); $('#modal-root input, #modal-root button')?.focus(); }
   function closeModal() { $('#modal-root').innerHTML = ''; }
+  const learningView = LearningUI.create({
+    profile, save, refresh: render, export: exportRecords,
+    confirm(title, text, action) {
+      showModal('<h2>' + esc(title) + '</h2><p class="subtle">' + esc(text) + '</p><div class="modal-actions" style="margin-top:22px"><button class="secondary" id="learning-cancel">取消</button><button class="primary" id="learning-confirm">确认</button></div>', () => {
+        $('#learning-cancel').onclick = closeModal;
+        $('#learning-confirm').onclick = () => { closeModal(); action(); };
+      });
+    }
+  });
+  function render() {
+    renderLegacy();
+    $('.nav').insertAdjacentHTML('afterbegin', '<button data-nav="learning" class="' + (view === 'learning' ? 'active' : '') + '">' + svg('leaf') + '能力提升<span class="nav-new">新</span></button>');
+    $('.topbar .pill').textContent = '能力提升版 · v0.2';
+    if (view === 'learning') {
+      const main = $('.main'), topbar = $('.topbar').outerHTML, footer = $('.footer').outerHTML;
+      main.innerHTML = topbar + (!storageOK ? '<div class="storage-warning">当前浏览器无法保存，请及时导出学习记录。</div>' : '') + learningView.render() + footer;
+    }
+    bind();
+    if (view === 'learning') learningView.bind();
+  }
   function newProfile() {
     showModal('<h2>为学生建立独立记录</h2><p class="subtle">填写昵称即可，所有答题记录保存在这个浏览器。</p><input id="new-name" class="answer-input" placeholder="学生昵称" maxlength="12" aria-label="学生昵称"><div class="modal-actions"><button class="text-btn" id="cancel-profile">取消</button><button class="primary" id="create-profile">建立记录</button></div>', () => {
       $('#cancel-profile').onclick = closeModal;
@@ -138,7 +166,7 @@
   }
   function exportRecords() {
     const p = profile();
-    const output = { app: '知数数学能力测评', schemaVersion: 1, exportedAt: new Date().toISOString(), student: p.name, config: db.config, records: p.records, latestDiagnosis: p.latestDiagnosis, source: 'https://github.com/xiaoyang111222/cn-math-taxonomy', license: 'CC BY-NC 4.0' };
+    const output = { app: '知数数学能力提升', schemaVersion: 2, exportedAt: new Date().toISOString(), student: p.name, config: db.config, records: p.records, latestDiagnosis: p.latestDiagnosis, learningRun: p.learningRun || null, learningRuns: p.learningRuns || [], learningSeenIds: p.learningSeenIds || [], source: 'https://github.com/xiaoyang111222/cn-math-taxonomy', license: 'CC BY-NC 4.0' };
     const a = document.createElement('a'); const url = URL.createObjectURL(new Blob([JSON.stringify(output, null, 2)], { type: 'application/json' })); a.href = url; a.download = '知数-答题记录-' + new Date().toISOString().slice(0, 10) + '.json'; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
   function bind() {

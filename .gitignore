@@ -2,3 +2,11 @@ node_modules/
 *.log
 *.tar.gz
 *.zip
+.env
+.env.*
+!.env.example
+coverage/
+test-results/
+playwright-report/
+*答题记录*.json
+*学习记录*.json
