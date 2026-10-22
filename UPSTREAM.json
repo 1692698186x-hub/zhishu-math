@@ -1,0 +1,22 @@
+{
+  "repository": "https://github.com/xiaoyang111222/cn-math-taxonomy",
+  "retrievedDate": "2026-10-20",
+  "license": "CC BY-NC 4.0",
+  "files": {
+    "data/topics.json": {
+      "gitBlobSha": "224bc5f9f07db4c0288cf12068a7211a77244951"
+    },
+    "data/dependencies.json": {
+      "gitBlobSha": "76800a719bc27e86520991c48c5125cc7dc4e8f4"
+    },
+    "data/questions.json": {
+      "gitBlobSha": "0832c138418cf89c4e24903469e33f493910511d"
+    },
+    "diagnose/engine.js": {
+      "gitBlobSha": "f37ac4763c3244803f7d76744bab775e0acdf725"
+    },
+    "LICENSE": {
+      "gitBlobSha": "fe463e0f7888bbf8b82e42d55f5743508ddafb7e"
+    }
+  }
+}
