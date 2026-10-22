@@ -1,6 +1,6 @@
 {
   "name": "zhishu-math",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "description": "知数：七年级数学错因诊断与自适应能力提升原型",
   "license": "CC-BY-NC-4.0",

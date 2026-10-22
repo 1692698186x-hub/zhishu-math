@@ -20,7 +20,7 @@ function boot(store = new Map()) {
 let passed = 0;
 function test(name, action) { action(); passed++; console.log('PASS ' + name); }
 test('Built offline HTML starts the real UI with all five navigation entries', () => {
-  const app = boot(); assert.match(app.find('.main').textContent, /把不会的，变成会的/);
+  const app = boot(); assert.match(app.find('.main').textContent, /能力提升/);
   assert.equal(app.window.document.querySelectorAll('.nav button').length, 5);
   assert.match(app.find('.main').textContent, /本地指导/);
 });
@@ -33,7 +33,7 @@ test('Wrong initial work is retained and leads through the learning plan to a co
   const app = boot(); app.click('[data-learn="start"]');
   assert.equal(app.window.document.querySelector('[data-learn="hint"]'), null);
   app.fill('#learning-working', '2(x+1)+1 = 2x+2'); app.answer(true); app.answer(); app.answer();
-  assert.match(app.find('.main').textContent, /找到起点/); assert.equal(app.profile().learningRun.answers[0].steps, '2(x+1)+1 = 2x+2');
+  assert.match(app.find('.main').textContent, /学习起点/); assert.equal(app.profile().learningRun.answers[0].steps, '2(x+1)+1 = 2x+2');
   app.click('[data-learn="train"]'); assert.equal(app.profile().learningRun.current.stage, 'probe'); assert.ok(app.find('[data-learn-choice]'));
 });
 test('Pause and reload preserve the exact exercise, draft, and assistance flag', () => {

@@ -2,6 +2,7 @@
 const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
+const version = require('./package.json').version;
 const unit = require('./source/learning-unit.js');
 const learning = require('./source/learning.js').createEngine(unit);
 
@@ -30,7 +31,7 @@ function createServer(options = {}) {
   return http.createServer(async (req, res) => {
     try {
       const url = new URL(req.url, 'http://localhost');
-      if (req.method === 'GET' && url.pathname === '/api/status') return json(res, 200, { app: 'zhishu-math', version: '0.2.0', configured, provider: configured ? '华为云 MaaS' : null });
+      if (req.method === 'GET' && url.pathname === '/api/status') return json(res, 200, { app: 'zhishu-math', version, configured, provider: configured ? '华为云 MaaS' : null });
       if (url.pathname === '/api/coach') {
         if (req.method !== 'POST') return json(res, 405, { error: '请使用 POST 请求。' });
         const origin = req.headers.origin;

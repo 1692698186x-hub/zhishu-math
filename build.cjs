@@ -1,11 +1,12 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const root = __dirname;
+const version = require('./package.json').version;
 const source = name => fs.readFileSync(path.join(root, 'source', name), 'utf8');
 const data = { topics: JSON.parse(source('topics.json')), dependencies: JSON.parse(source('dependencies.json')), questions: JSON.parse(source('questions.json')) };
 const slots = {
   STYLE: source('style.css') + '\n' + source('adaptive.css') + '\n' + source('learning.css'),
-  DATA: 'const MATH_DATA = ' + JSON.stringify(data).replace(/</g, '\\u003c') + ';',
+  DATA: 'const APP_VERSION = ' + JSON.stringify(version) + ';\nconst MATH_DATA = ' + JSON.stringify(data).replace(/</g, '\\u003c') + ';',
   JUDGE: source('judge.js'), ABILITY: source('ability.js'), APP: source('app.js'),
   LEARNING_UNIT: source('learning-unit.js'), LEARNING: source('learning.js'), LEARNING_UI: source('learning-ui.js')
 };
