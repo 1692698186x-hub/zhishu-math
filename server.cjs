@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const version = require('./package.json').version;
 const unit = require('./source/learning-unit.js');
+const { createReportHandler } = require('./report-service.cjs');
 const learning = require('./source/learning.js').createEngine(unit);
 
 function readConfig(env = process.env, envFile = path.join(__dirname, '.env.local')) {
@@ -28,10 +29,12 @@ function createServer(options = {}) {
   const limits = new Map(); let active = 0;
   const configured = !!(config.key && config.model);
   function json(res, code, data) { res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' }); res.end(JSON.stringify(data)); }
+  const handleReport = createReportHandler({ config, fetchImpl, json });
   return http.createServer(async (req, res) => {
     try {
       const url = new URL(req.url, 'http://localhost');
       if (req.method === 'GET' && url.pathname === '/api/status') return json(res, 200, { app: 'zhishu-math', version, configured, provider: configured ? '华为云 MaaS' : null });
+      if (url.pathname === '/api/report') return await handleReport(req, res);
       if (url.pathname === '/api/coach') {
         if (req.method !== 'POST') return json(res, 405, { error: '请使用 POST 请求。' });
         const origin = req.headers.origin;

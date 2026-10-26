@@ -10,3 +10,5 @@ test-results/
 playwright-report/
 *答题记录*.json
 *学习记录*.json
+
+.sites-runtime/

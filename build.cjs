@@ -5,10 +5,10 @@ const version = require('./package.json').version;
 const source = name => fs.readFileSync(path.join(root, 'source', name), 'utf8');
 const data = { topics: JSON.parse(source('topics.json')), dependencies: JSON.parse(source('dependencies.json')), questions: JSON.parse(source('questions.json')) };
 const slots = {
-  STYLE: source('style.css') + '\n' + source('adaptive.css') + '\n' + source('learning.css'),
+  STYLE: source('workspace.css'),
   DATA: 'const APP_VERSION = ' + JSON.stringify(version) + ';\nconst MATH_DATA = ' + JSON.stringify(data).replace(/</g, '\\u003c') + ';',
-  JUDGE: source('judge.js'), ABILITY: source('ability.js'), APP: source('app.js'),
-  LEARNING_UNIT: source('learning-unit.js'), LEARNING: source('learning.js'), LEARNING_UI: source('learning-ui.js')
+  JUDGE: source('judge.js'), ABILITY: source('ability.js'), APP: source('workspace-ui.js'),
+  LEARNING_UNIT: source('learning-unit.js'), LEARNING: source('learning.js'), LEARNING_UI: source('trainer.js')
 };
 let html = source('template.html');
 for (const [name, value] of Object.entries(slots)) html = html.replace('/*__' + name + '__*/', () => value);
