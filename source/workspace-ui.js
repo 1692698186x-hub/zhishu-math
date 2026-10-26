@@ -46,7 +46,7 @@
   function gradePage() {
     const selected = Number(db.ui.selectedGrade), last = profile().grade;
     const cards = grades => '<div class="grade-grid">' + grades.map(g => '<button class="grade-card ' + (selected === g ? 'selected' : '') + '" data-grade="' + g + '" aria-pressed="' + (selected === g) + '"><span class="grade-number">' + String(g).padStart(2, '0') + '</span><div><b>' + gradeName(g) + '</b><small>' + (last === g ? '上次学习' : (g <= 6 ? '小学数学' : '初中数学')) + '</small></div><span class="grade-check">' + icon('check') + '</span></button>').join('') + '</div>';
-    return '<div class="grade-page"><header class="grade-top">' + brand() + '<span class="top-label">' + icon('book') + ' 数学学习空间</span></header><main class="grade-content"><div class="grade-steps" aria-label="学习步骤"><span class="current"><i class="step-circle">1</i>选择年级</span><i class="step-line"></i><span><i class="step-circle">2</i>知识点学习</span><i class="step-line"></i><span><i class="step-circle">3</i>能力报告</span></div><div class="grade-heading"><div><h1>选择你的年级</h1><p>今天，从适合自己的地方开始。</p></div><div class="grade-emblem">' + icon('book') + '</div></div><div class="school-heading">小学</div>' + cards([1, 2, 3, 4, 5, 6]) + '<div class="school-heading">初中</div>' + cards([7, 8, 9]) + '<div class="grade-bottom"><p>' + (selected ? '已选择 ' + gradeName(selected) + ' · 数学' : '选择后，进入对应年级的学习空间') + '</p><button class="primary" data-action="enter"' + (!selected ? ' disabled' : '') + '>进入学习 ' + icon('arrow') + '</button></div>' + sourceFooter() + '</main></div>';
+    return '<div class="grade-page"><header class="grade-top"><span class="top-label">' + icon('book') + ' 数学学习空间</span></header><main class="grade-content"><div class="grade-steps" aria-label="学习步骤"><span class="current"><i class="step-circle">1</i>选择年级</span><i class="step-line"></i><span><i class="step-circle">2</i>知识点学习</span><i class="step-line"></i><span><i class="step-circle">3</i>能力报告</span></div><div class="grade-heading"><div><h1>选择你的年级</h1><p>今天，从适合自己的地方开始。</p></div><div class="grade-emblem">' + icon('book') + '</div></div><div class="school-heading">小学</div>' + cards([1, 2, 3, 4, 5, 6]) + '<div class="school-heading">初中</div>' + cards([7, 8, 9]) + '<div class="grade-bottom"><p>' + (selected ? '已选择 ' + gradeName(selected) + ' · 数学' : '选择后，进入对应年级的学习空间') + '</p><button class="primary" data-action="enter"' + (!selected ? ' disabled' : '') + '>' + (db.ui.afterGrade === 'report' ? '查看能力报告' : '进入学习') + ' ' + icon('arrow') + '</button></div>' + sourceFooter() + '</main></div>';
   }
   function curriculum() {
     const s = space(), query = s.query.trim().toLowerCase();
@@ -54,8 +54,19 @@
     const groups = new Map(); filtered.forEach(t => { const name = chapterName(t); if (!groups.has(name)) groups.set(name, []); groups.get(name).push(t); });
     return '<div class="curriculum"><div class="curriculum-head"><b>知识目录</b><span>' + visibleTopics().length + ' 个知识点</span></div><div class="semester-tabs" role="group" aria-label="册次">' + [['上', '上册'], ['下', '下册'], ['all', '全册']].map(([value, text]) => '<button data-semester="' + value + '" class="' + (s.semester === value ? 'active' : '') + '" aria-pressed="' + (s.semester === value) + '">' + text + '</button>').join('') + '</div><label class="search-wrap">' + icon('search') + '<input class="search-input" id="topic-search" aria-label="搜索本年级知识点" placeholder="搜索知识点" value="' + esc(s.query) + '"></label><div class="topic-scroll">' + (filtered.length ? [...groups].map(([name, list], index) => '<details class="chapter" data-chapter="' + esc(name) + '"' + (query || list.some(t => t.id === s.topicId) || !s.topicId && index === 0 || s.openChapters?.includes(name) ? ' open' : '') + '><summary>' + icon('chevron') + '<span>' + esc(name.replace(/^[一二三四五六七八九][上下]\s*/, '')) + '</span><small>' + list.length + '</small></summary>' + list.map(t => { const ev = T.evidence(profile().records, t.id); return '<button class="topic-button ' + (t.id === s.topicId ? 'active' : '') + '" data-topic="' + t.id + '"' + (t.id === s.topicId ? ' aria-current="true"' : '') + ' title="' + esc(t.name) + '"><i class="topic-dot ' + ev.status + '"></i><span class="topic-name">' + esc(t.name) + '</span>' + (ev.n ? '<span class="topic-score">' + ev.progress + '%</span>' : '') + '</button>'; }).join('') + '</details>').join('') : '<div class="no-topics">没有找到相关知识点</div>') + '</div></div>';
   }
-  function sidebar() { const p = profile(); return '<aside class="sidebar" aria-label="学习导航"><div class="side-top">' + brand() + '<button class="grade-switch" data-action="grades" aria-label="切换年级"><span>' + gradeName(grade()) + ' <span class="muted">· 数学</span></span>' + icon('chevron') + '</button></div><nav class="side-tabs" aria-label="主导航"><button data-nav="practice" class="' + (db.ui.screen === 'practice' ? 'active' : '') + '">' + icon('book') + '学习练习</button><button data-nav="report" class="' + (db.ui.screen === 'report' ? 'active' : '') + '">' + icon('chart') + '能力报告</button></nav>' + curriculum() + '<div class="side-profile"><div class="avatar">' + esc(p.name.slice(0, 1)) + '</div><div class="profile-name"><select id="profile-select" aria-label="切换学生">' + db.profiles.map(x => '<option value="' + esc(x.id) + '"' + (x.id === p.id ? ' selected' : '') + '>' + esc(x.name) + '</option>').join('') + '</select><small>独立学习记录</small></div><button class="text-button" data-action="new-profile" aria-label="新建学生" title="新建学生">' + icon('plus') + '</button></div></aside>'; }
-  function topbar() { return '<header class="topbar"><div class="breadcrumbs"><button class="mobile-menu" data-action="mobile" aria-label="展开知识目录">' + icon('menu') + '</button><span>' + gradeName(grade()) + '数学</span>' + icon('chevron') + '<b>' + (db.ui.screen === 'report' ? '能力报告' : '学习练习') + '</b></div><div class="top-right"><span class="saved"><i></i>' + (storageOK ? '进度已保存' : '暂未保存') + '</span><button class="secondary" data-nav="' + (db.ui.screen === 'report' ? 'practice' : 'report') + '">' + icon(db.ui.screen === 'report' ? 'back' : 'chart') + (db.ui.screen === 'report' ? '返回练习' : '能力报告') + '</button></div></header>'; }
+  function profileBlock() {
+    const p = profile();
+    return '<div class="side-profile"><div class="avatar">' + esc(p.name.slice(0, 1)) + '</div><div class="profile-name"><select id="profile-select" aria-label="切换学生">' + db.profiles.map(x => '<option value="' + esc(x.id) + '"' + (x.id === p.id ? ' selected' : '') + '>' + esc(x.name) + '</option>').join('') + '</select><small>独立学习记录</small></div><button class="text-button" data-action="new-profile" aria-label="新建学生" title="新建学生">' + icon('plus') + '</button></div>';
+  }
+  function primarySidebar() {
+    const active = db.ui.screen === 'grades' ? db.ui.afterGrade || 'practice' : db.ui.screen;
+    const sections = [['practice', 'book', '能力提升'], ['report', 'chart', '能力报告']];
+    return '<aside class="primary-sidebar" aria-label="应用侧边栏"><div class="primary-brand" aria-label="知数数学学习空间">' + brand() + '<span class="brand-caption">数学学习空间</span></div><nav class="primary-nav" aria-label="主导航">' + sections.map(([id, symbol, label]) => '<button data-primary="' + id + '" class="' + (active === id ? 'active' : '') + '"' + (active === id ? ' aria-current="page"' : '') + '>' + icon(symbol) + '<span>' + label + '</span></button>').join('') + '</nav><div class="primary-bottom"><button class="primary-grade" data-action="grades" aria-label="切换年级">' + icon('book') + '<span>' + (profile().grade ? gradeName(grade()) + '<small>数学</small>' : '选择年级') + '</span>' + icon('chevron') + '</button>' + profileBlock() + '</div></aside>';
+  }
+  function sidebar() {
+    return '<aside class="sidebar knowledge-sidebar" aria-label="知识目录"><div class="catalog-heading"><strong>' + gradeName(grade()) + '数学</strong><span>选择一个知识点</span></div>' + curriculum() + '</aside>';
+  }
+  function topbar() { return '<header class="topbar"><div class="breadcrumbs">' + (db.ui.screen === 'practice' ? '<button class="mobile-menu" data-action="mobile" aria-label="展开知识目录">' + icon('menu') + '</button>' : '') + '<span>' + gradeName(grade()) + '数学</span>' + icon('chevron') + '<b>' + (db.ui.screen === 'report' ? '能力报告' : '能力提升') + '</b></div><div class="top-right"><span class="saved"><i></i>' + (storageOK ? '进度已保存' : '暂未保存') + '</span><button class="secondary" data-nav="' + (db.ui.screen === 'report' ? 'practice' : 'report') + '">' + icon(db.ui.screen === 'report' ? 'back' : 'chart') + (db.ui.screen === 'report' ? '返回练习' : '能力报告') + '</button></div></header>'; }
   function mastery(t, r) {
     const ev = T.evidence(profile().records, t.id), level = r?.current ? Math.max(0, T.levels.indexOf(T.items[r.current.questionId]?.difficulty)) : r?.level ?? 1;
     const passedLevel = i => i < level && ev.recent.some(a => a.outcome === 'correct' && a.difficulty === T.levels[i]);
@@ -101,7 +112,8 @@
   function render(focusHeading = false) {
     const sidebarScroll = $('.topic-scroll')?.scrollTop || 0;
     if (db.ui.screen !== 'grades') ensureTopic();
-    $('#app').innerHTML = db.ui.screen === 'grades' ? gradePage() : '<div class="workspace ' + (mobileOpen ? 'mobile-open' : '') + '"><button class="mobile-shade" data-action="mobile" aria-label="收起知识目录"></button>' + sidebar() + '<main class="workspace-main">' + topbar() + '<div class="learning-content">' + (!storageOK ? '<div class="storage-warning">当前浏览器未能保存进度，可在能力报告中导出学习记录。</div>' : '') + (db.ui.screen === 'report' ? reportPage() : practicePage()) + sourceFooter() + '</div></main></div>';
+    $('#app').innerHTML = db.ui.screen === 'grades' ? gradePage() : '<div class="workspace ' + (db.ui.screen === 'report' ? 'report-workspace ' : '') + (mobileOpen ? 'mobile-open' : '') + '"><button class="mobile-shade" data-action="mobile" aria-label="收起知识目录"></button>' + (db.ui.screen === 'practice' ? sidebar() : '') + '<main class="workspace-main">' + topbar() + '<div class="learning-content">' + (!storageOK ? '<div class="storage-warning">当前浏览器未能保存进度，可在能力报告中导出学习记录。</div>' : '') + (db.ui.screen === 'report' ? reportPage() : practicePage()) + sourceFooter() + '</div></main></div>';
+    $('#app').insertAdjacentHTML('afterbegin', primarySidebar());
     bind(); if ($('.topic-scroll')) $('.topic-scroll').scrollTop = sidebarScroll;
     save(); if (focusHeading) $('#page-heading')?.focus({ preventScroll: true });
   }
@@ -176,14 +188,15 @@
   }
   function bind() {
     document.querySelectorAll('[data-grade]').forEach(el => el.onclick = () => { db.ui.selectedGrade = Number(el.dataset.grade); render(); });
+    document.querySelectorAll('[data-primary]').forEach(el => el.onclick = () => { const destination = el.dataset.primary; if (!profile().grade) { db.ui.afterGrade = destination; go('grades'); } else go(destination); });
     document.querySelectorAll('[data-nav]').forEach(el => el.onclick = () => go(el.dataset.nav));
     document.querySelectorAll('[data-topic]').forEach(el => el.onclick = () => selectTopic(el.dataset.topic));
     document.querySelectorAll('[data-semester]').forEach(el => el.onclick = () => { captureDraft(); space().semester = el.dataset.semester; space().query = ''; render(true); });
     document.querySelectorAll('[data-choice]').forEach(el => el.onclick = () => { captureDraft(); if (!run()?.current || run().feedback) return; run().draft.answer = el.dataset.choice; note = ''; render(); });
     document.querySelectorAll('[data-action]').forEach(el => el.onclick = () => {
       const action = el.dataset.action;
-      if (action === 'enter') { const value = Number(db.ui.selectedGrade); if (value >= 1 && value <= 9) { profile().grade = value; db.config.grade = value; go('practice'); } }
-      else if (action === 'grades') { db.ui.selectedGrade = grade(); go('grades'); }
+      if (action === 'enter') { const value = Number(db.ui.selectedGrade); if (value >= 1 && value <= 9) { profile().grade = value; db.config.grade = value; const destination = db.ui.afterGrade || 'practice'; db.ui.afterGrade = 'practice'; go(destination); } }
+      else if (action === 'grades') { db.ui.afterGrade = db.ui.screen === 'report' ? 'report' : 'practice'; db.ui.selectedGrade = profile().grade || null; go('grades'); }
       else if (action === 'mobile') { captureDraft(); mobileOpen = !mobileOpen; render(); }
       else if (action === 'submit') submit();
       else if (action === 'skip') submit('skip');
@@ -198,13 +211,13 @@
       else if (action === 'export') exportRecords();
       else if (action === 'new-profile') modal('<h2 id="modal-title">新建学习档案</h2><input id="new-profile-name" maxlength="16" aria-label="学生昵称" placeholder="填一个昵称"><p style="margin-top:12px">每位同学各自保留学习进度。</p><div class="modal-actions"><button class="secondary" id="cancel-profile">取消</button><button class="primary" id="create-profile">创建</button></div>', () => {
         $('#cancel-profile').onclick = closeModal;
-        $('#create-profile').onclick = () => { const name = $('#new-profile-name').value.trim(); if (!name) return; captureDraft(); const id = 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5); db.profiles.push({ id, name, records: [] }); db.activeId = id; db.ui.selectedGrade = null; closeModal(); go('grades', false); };
+        $('#create-profile').onclick = () => { const name = $('#new-profile-name').value.trim(); if (!name) return; captureDraft(); const id = 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5); db.profiles.push({ id, name, records: [] }); db.activeId = id; db.ui.selectedGrade = null; db.ui.afterGrade = 'practice'; closeModal(); go('grades', false); };
       });
     });
     if ($('#practice-answer')) { $('#practice-answer').oninput = captureDraft; $('#practice-answer').onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); submit(); } }; }
     if ($('#practice-steps')) $('#practice-steps').oninput = captureDraft;
     if ($('#topic-search')) $('#topic-search').oninput = e => { captureDraft(); const value = e.target.value, cursor = e.target.selectionStart; space().query = value; clearTimeout(searchTimer); searchTimer = setTimeout(() => { render(); const input = $('#topic-search'); input?.focus(); input?.setSelectionRange?.(cursor, cursor); }, 120); };
-    if ($('#profile-select')) $('#profile-select').onchange = e => { captureDraft(); db.activeId = e.target.value; db.ui.selectedGrade = profile().grade || null; go('grades', false); };
+    if ($('#profile-select')) $('#profile-select').onchange = e => { captureDraft(); db.activeId = e.target.value; db.ui.selectedGrade = profile().grade || null; db.ui.afterGrade = 'practice'; go('grades', false); };
     if ($('#report-ai')) $('#report-ai').onchange = e => { profile().aiConsent = e.target.checked; save(); };
     document.querySelectorAll('[data-chapter]').forEach(el => el.ontoggle = () => { space().openChapters = [...document.querySelectorAll('[data-chapter]')].filter(d => d.open).map(d => d.dataset.chapter); save(); });
   }
