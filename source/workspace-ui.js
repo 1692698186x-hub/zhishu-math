@@ -10,6 +10,7 @@
   const chapterName = t => E.chapter(t).replace(/\s+\d+[\d./]*\s*$/, '').replace(/\s+综合与实践$/, '');
   const statusNames = { secure: '较稳定', weak: '需加强', shaky: '巩固中', checking: '初步了解', unknown: '未练习', notlearned: '尚未学习' };
   const paths = {
+    network: '<circle cx="5" cy="6" r="3"/><circle cx="19" cy="5" r="2"/><circle cx="12" cy="19" r="3"/><path d="m8 6 9-1M6 9l4 7m7-9-4 9"/>',
     book: '<path d="M4 4h6a3 3 0 0 1 2 1 3 3 0 0 1 2-1h6v15h-6a3 3 0 0 0-2 1 3 3 0 0 0-2-1H4z"/><path d="M12 5v15M7 8h2m-2 4h2m6-4h2m-2 4h2"/>',
     brand: '<path d="M5 6h6v5H5zM13 13h6v5h-6zM14 5h4v4M6 15v4h4"/><path d="m14 9 5-5M5 20l5-5"/>',
     arrow: '<path d="M4 12h15m-5-5 5 5-5 5"/>', chevron: '<path d="m8 10 4 4 4-4"/>',
@@ -28,7 +29,7 @@
   if (!db || db.version !== 1 || !Array.isArray(db.profiles) || !db.profiles.length) db = { version: 1, activeId: 'student-1', profiles: [{ id: 'student-1', name: '体验同学', records: [] }], config: { grade: 7 } };
   if (!db.profiles.some(p => p.id === db.activeId)) db.activeId = db.profiles[0].id;
   db.config ||= {}; db.ui ||= { screen: 'grades', selectedGrade: null };
-  if (!['grades', 'practice', 'report'].includes(db.ui.screen)) db.ui.screen = 'grades';
+  if (!['grades', 'practice', 'report', 'graph'].includes(db.ui.screen)) db.ui.screen = 'grades';
   let mobileOpen = false, note = '', modalReturnFocus = null, analysisBusy = false, aiStatus = { configured: false }, statusRequested = false, searchTimer;
   const profile = () => db.profiles.find(p => p.id === db.activeId);
   const grade = () => Number(profile().grade || db.config.grade || 7);
@@ -46,7 +47,7 @@
   function gradePage() {
     const selected = Number(db.ui.selectedGrade), last = profile().grade;
     const cards = grades => '<div class="grade-grid">' + grades.map(g => '<button class="grade-card ' + (selected === g ? 'selected' : '') + '" data-grade="' + g + '" aria-pressed="' + (selected === g) + '"><span class="grade-number">' + String(g).padStart(2, '0') + '</span><div><b>' + gradeName(g) + '</b><small>' + (last === g ? '上次学习' : (g <= 6 ? '小学数学' : '初中数学')) + '</small></div><span class="grade-check">' + icon('check') + '</span></button>').join('') + '</div>';
-    return '<div class="grade-page"><header class="grade-top"><span class="top-label">' + icon('book') + ' 数学学习空间</span></header><main class="grade-content"><div class="grade-steps" aria-label="学习步骤"><span class="current"><i class="step-circle">1</i>选择年级</span><i class="step-line"></i><span><i class="step-circle">2</i>知识点学习</span><i class="step-line"></i><span><i class="step-circle">3</i>能力报告</span></div><div class="grade-heading"><div><h1>选择你的年级</h1><p>今天，从适合自己的地方开始。</p></div><div class="grade-emblem">' + icon('book') + '</div></div><div class="school-heading">小学</div>' + cards([1, 2, 3, 4, 5, 6]) + '<div class="school-heading">初中</div>' + cards([7, 8, 9]) + '<div class="grade-bottom"><p>' + (selected ? '已选择 ' + gradeName(selected) + ' · 数学' : '选择后，进入对应年级的学习空间') + '</p><button class="primary" data-action="enter"' + (!selected ? ' disabled' : '') + '>' + (db.ui.afterGrade === 'report' ? '查看能力报告' : '进入学习') + ' ' + icon('arrow') + '</button></div>' + sourceFooter() + '</main></div>';
+    return '<div class="grade-page"><header class="grade-top"><span class="top-label">' + icon('book') + ' 数学学习空间</span></header><main class="grade-content"><div class="grade-steps" aria-label="学习步骤"><span class="current"><i class="step-circle">1</i>选择年级</span><i class="step-line"></i><span><i class="step-circle">2</i>知识点学习</span><i class="step-line"></i><span><i class="step-circle">3</i>能力报告</span></div><div class="grade-heading"><div><h1>选择你的年级</h1><p>今天，从适合自己的地方开始。</p></div><div class="grade-emblem">' + icon('book') + '</div></div><div class="school-heading">小学</div>' + cards([1, 2, 3, 4, 5, 6]) + '<div class="school-heading">初中</div>' + cards([7, 8, 9]) + '<div class="grade-bottom"><p>' + (selected ? '已选择 ' + gradeName(selected) + ' · 数学' : '选择后，进入对应年级的学习空间') + '</p><button class="primary" data-action="enter"' + (!selected ? ' disabled' : '') + '>' + (db.ui.afterGrade === 'report' ? '查看能力报告' : db.ui.afterGrade === 'graph' ? '查看知识图谱' : '进入学习') + ' ' + icon('arrow') + '</button></div>' + sourceFooter() + '</main></div>';
   }
   function curriculum() {
     const s = space(), query = s.query.trim().toLowerCase();
@@ -60,13 +61,17 @@
   }
   function primarySidebar() {
     const active = db.ui.screen === 'grades' ? db.ui.afterGrade || 'practice' : db.ui.screen;
-    const sections = [['practice', 'book', '能力提升'], ['report', 'chart', '能力报告']];
+    const sections = [['practice', 'book', '能力提升'], ['graph', 'network', '知识图谱'], ['report', 'chart', '能力报告']];
     return '<aside class="primary-sidebar" aria-label="应用侧边栏"><div class="primary-brand" aria-label="知数数学学习空间">' + brand() + '<span class="brand-caption">数学学习空间</span></div><nav class="primary-nav" aria-label="主导航">' + sections.map(([id, symbol, label]) => '<button data-primary="' + id + '" class="' + (active === id ? 'active' : '') + '"' + (active === id ? ' aria-current="page"' : '') + '>' + icon(symbol) + '<span>' + label + '</span></button>').join('') + '</nav><div class="primary-bottom"><button class="primary-grade" data-action="grades" aria-label="切换年级">' + icon('book') + '<span>' + (profile().grade ? gradeName(grade()) + '<small>数学</small>' : '选择年级') + '</span>' + icon('chevron') + '</button>' + profileBlock() + '</div></aside>';
   }
   function sidebar() {
     return '<aside class="sidebar knowledge-sidebar" aria-label="知识目录"><div class="catalog-heading"><strong>' + gradeName(grade()) + '数学</strong><span>选择一个知识点</span></div>' + curriculum() + '</aside>';
   }
-  function topbar() { return '<header class="topbar"><div class="breadcrumbs">' + (db.ui.screen === 'practice' ? '<button class="mobile-menu" data-action="mobile" aria-label="展开知识目录">' + icon('menu') + '</button>' : '') + '<span>' + gradeName(grade()) + '数学</span>' + icon('chevron') + '<b>' + (db.ui.screen === 'report' ? '能力报告' : '能力提升') + '</b></div><div class="top-right"><span class="saved"><i></i>' + (storageOK ? '进度已保存' : '暂未保存') + '</span><button class="secondary" data-nav="' + (db.ui.screen === 'report' ? 'practice' : 'report') + '">' + icon(db.ui.screen === 'report' ? 'back' : 'chart') + (db.ui.screen === 'report' ? '返回练习' : '能力报告') + '</button></div></header>'; }
+  function topbar() {
+    const title = { practice: '能力提升', report: '能力报告', graph: '知识图谱' }[db.ui.screen];
+    const learning = db.ui.screen === 'practice';
+    return '<header class="topbar"><div class="breadcrumbs">' + (learning ? '<button class="mobile-menu" data-action="mobile" aria-label="展开知识目录">' + icon('menu') + '</button>' : '') + '<span>' + gradeName(grade()) + '数学</span>' + icon('chevron') + '<b>' + title + '</b></div><div class="top-right"><span class="saved"><i></i>' + (storageOK ? '进度已保存' : '暂未保存') + '</span><button class="secondary" data-nav="' + (learning ? 'report' : 'practice') + '">' + icon(learning ? 'chart' : 'back') + (learning ? '能力报告' : '返回学习') + '</button></div></header>';
+  }
   function mastery(t, r) {
     const ev = T.evidence(profile().records, t.id), level = r?.current ? Math.max(0, T.levels.indexOf(T.items[r.current.questionId]?.difficulty)) : r?.level ?? 1;
     const passedLevel = i => i < level && ev.recent.some(a => a.outcome === 'correct' && a.difficulty === T.levels[i]);
@@ -111,10 +116,11 @@
   }
   function render(focusHeading = false) {
     const sidebarScroll = $('.topic-scroll')?.scrollTop || 0;
-    if (db.ui.screen !== 'grades') ensureTopic();
-    $('#app').innerHTML = db.ui.screen === 'grades' ? gradePage() : '<div class="workspace ' + (db.ui.screen === 'report' ? 'report-workspace ' : '') + (mobileOpen ? 'mobile-open' : '') + '"><button class="mobile-shade" data-action="mobile" aria-label="收起知识目录"></button>' + (db.ui.screen === 'practice' ? sidebar() : '') + '<main class="workspace-main">' + topbar() + '<div class="learning-content">' + (!storageOK ? '<div class="storage-warning">当前浏览器未能保存进度，可在能力报告中导出学习记录。</div>' : '') + (db.ui.screen === 'report' ? reportPage() : practicePage()) + sourceFooter() + '</div></main></div>';
+    if (db.ui.screen === 'practice') ensureTopic();
+    if (db.ui.screen !== 'graph') graph.suspend();
+    $('#app').innerHTML = db.ui.screen === 'grades' ? gradePage() : '<div class="workspace ' + (db.ui.screen === 'report' ? 'report-workspace ' : db.ui.screen === 'graph' ? 'graph-workspace ' : '') + (mobileOpen ? 'mobile-open' : '') + '"><button class="mobile-shade" data-action="mobile" aria-label="收起知识目录"></button>' + (db.ui.screen === 'practice' ? sidebar() : '') + '<main class="workspace-main">' + topbar() + '<div class="learning-content">' + (!storageOK ? '<div class="storage-warning">当前浏览器未能保存进度，可在能力报告中导出学习记录。</div>' : '') + (db.ui.screen === 'graph' ? graph.render() : db.ui.screen === 'report' ? reportPage() : practicePage()) + sourceFooter() + '</div></main></div>';
     $('#app').insertAdjacentHTML('afterbegin', primarySidebar());
-    bind(); if ($('.topic-scroll')) $('.topic-scroll').scrollTop = sidebarScroll;
+    bind(); if (db.ui.screen === 'graph') graph.bind(); if ($('.topic-scroll')) $('.topic-scroll').scrollTop = sidebarScroll;
     save(); if (focusHeading) $('#page-heading')?.focus({ preventScroll: true });
   }
   function ensureTopic() {
@@ -196,7 +202,7 @@
     document.querySelectorAll('[data-action]').forEach(el => el.onclick = () => {
       const action = el.dataset.action;
       if (action === 'enter') { const value = Number(db.ui.selectedGrade); if (value >= 1 && value <= 9) { profile().grade = value; db.config.grade = value; const destination = db.ui.afterGrade || 'practice'; db.ui.afterGrade = 'practice'; go(destination); } }
-      else if (action === 'grades') { db.ui.afterGrade = db.ui.screen === 'report' ? 'report' : 'practice'; db.ui.selectedGrade = profile().grade || null; go('grades'); }
+      else if (action === 'grades') { db.ui.afterGrade = ['report', 'graph'].includes(db.ui.screen) ? db.ui.screen : 'practice'; db.ui.selectedGrade = profile().grade || null; go('grades'); }
       else if (action === 'mobile') { captureDraft(); mobileOpen = !mobileOpen; render(); }
       else if (action === 'submit') submit();
       else if (action === 'skip') submit('skip');
@@ -221,6 +227,7 @@
     if ($('#report-ai')) $('#report-ai').onchange = e => { profile().aiConsent = e.target.checked; save(); };
     document.querySelectorAll('[data-chapter]').forEach(el => el.ontoggle = () => { space().openChapters = [...document.querySelectorAll('[data-chapter]')].filter(d => d.open).map(d => d.dataset.chapter); save(); });
   }
+  const graph = KnowledgeGraph.create({ data: MATH_DATA, getGrade: grade, getCurrentTopic: () => space().topicId, getEvidence: id => T.evidence(profile().records, id), gradeName, chapterName, onLearn: selectTopic });
   render();
   if (db.ui.screen === 'report') checkStatus();
 })();
