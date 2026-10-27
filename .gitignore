@@ -12,3 +12,5 @@ playwright-report/
 *学习记录*.json
 
 .sites-runtime/
+.local/
+.env.local.tmp

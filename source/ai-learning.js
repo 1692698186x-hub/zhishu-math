@@ -1,0 +1,236 @@
+(function (root, factory) {
+  if (typeof module === 'object' && module.exports) module.exports = factory(require('./linear-math.js'));
+  else root.AILearning = factory(root.LinearMath);
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (MathCheck) {
+  'use strict';
+  const dimensions = [{ id: 'symbol', name: '符号运算' }, { id: 'equivalence', name: '等价变形' }, { id: 'reasoning', name: '步骤推理' }, { id: 'reverse', name: '逆向检验' }, { id: 'modeling', name: '情境建模' }];
+  const skills = {
+    sign: { name: '相反数与负号', topicId: 'cnm_006', dimension: 'symbol', prerequisites: [] },
+    distribute: { name: '去括号与变号', topicId: 'cnm_035', dimension: 'symbol', prerequisites: ['sign'] },
+    balance: { name: '等式两边同做运算', topicId: 'cnm_040', dimension: 'equivalence', prerequisites: ['sign'] },
+    solve: { name: '综合解方程', topicId: 'cnm_043', dimension: 'reasoning', prerequisites: ['distribute', 'balance'] },
+    verify: { name: '代入检查与反例', topicId: 'cnm_039', dimension: 'reverse', prerequisites: ['solve'] },
+    model: { name: '从情境列方程', topicId: 'cnm_045', dimension: 'modeling', prerequisites: ['balance'] }
+  };
+  const roots = {
+    sign: { skill: 'sign', label: '负号与相反数的理解待检查' },
+    distribute: { skill: 'distribute', label: '括号外因数可能未作用到每一项' },
+    balance: { skill: 'balance', label: '等式两边可能没有做相同运算' },
+    solve: { skill: 'solve', label: '综合解方程的步骤衔接待检查' },
+    verify: { skill: 'verify', label: '代入检验的方法待检查' },
+    model: { skill: 'model', label: '题目中的等量关系待检查' }
+  };
+  const targetSkills = ['distribute', 'balance', 'solve', 'verify', 'model'];
+  const actionNames = { probe: '做一个小检查', prerequisite: '先补相关基础', hint: '用提示继续这一步', practice: '同层换题巩固', challenge: '试试更高梯度', retest: '换新题独立验证', finish: '结束并查看本轮记录' };
+  const levelNames = ['基础巩固', '标准运用', '进阶挑战'];
+  const sigmoid = x => 1 / (1 + Math.exp(-x));
+  const clamp = (x, min, max) => Math.max(min, Math.min(max, x));
+  const fmt = n => n < 0 ? ' - ' + -n : ' + ' + n;
+  function configureGraph(dependencies) {
+    const graph = new Map(), evidence = [];
+    for (const edge of dependencies || []) if (edge.strength === 'hard') { if (!graph.has(edge.topicId)) graph.set(edge.topicId, []); graph.get(edge.topicId).push(edge.prerequisiteId); }
+    for (const [id, skill] of Object.entries(skills)) {
+      const visited = new Set([skill.topicId]), queue = [[skill.topicId]];
+      while (queue.length) {
+        const path = queue.shift(); if (path.length > 8) continue;
+        for (const next of graph.get(path.at(-1)) || []) {
+          if (visited.has(next)) continue; visited.add(next); const route = path.concat(next); queue.push(route);
+          const mapped = Object.keys(skills).find(s => !['verify', 'model'].includes(s) && skills[s].topicId === next && s !== id);
+          if (mapped) { if (!skill.prerequisites.includes(mapped)) skill.prerequisites.push(mapped); evidence.push({ skillId: id, prerequisiteSkill: mapped, path: route, source: 'knowledge-graph' }); }
+        }
+      }
+    }
+    return evidence;
+  }
+  function blueprint(skill, level, p = {}) {
+    if (!Object.hasOwn(skills, skill) || !Number.isInteger(level) || level < 0 || level > 2) throw Error('invalid blueprint');
+    const { a = 3, b = 5, x = 4, context = 'books' } = p;
+    if (![a, b, x].every(Number.isInteger) || a < 2 || a > 12 || b < 2 || b > 20 || x < 2 || x > 20 || !['books', 'tickets', 'stationery'].includes(context)) throw Error('invalid parameters');
+    let prompt, answer, type = 'numeric', choices, equation, hints, explanation;
+    if (skill === 'sign') {
+      prompt = level === 0 ? '计算：-(-' + b + ')。' : level === 1 ? '已知 a = -' + b + '，求 -a。' : '已知 -a = -' + b + '，求 a - ' + a + '。';
+      answer = String(level === 2 ? b - a : b);
+      hints = ['相反数与原数相加应得到多少？', '先找到负号正在作用的那个数，再写出它的相反数。', '在草稿上分开处理外面的负号和里面数的符号，再做剩余运算。'];
+      explanation = '先取相反数，再进行剩余运算，结果是 ' + answer + '。';
+    } else if (skill === 'distribute') {
+      const m = level === 0 ? 1 : level === 1 ? -1 : -a;
+      prompt = '去括号并化简：' + (m === 1 ? '' : m === -1 ? '-' : m) + '(x - ' + b + ')' + (level === 2 ? ' + ' + a + 'x' : '') + '。';
+      answer = (level === 2 ? '0x' : m + 'x') + fmt(-m * b); type = 'expression';
+      hints = ['括号外的数需要作用到括号里的几项？', '把括号前的负号看成乘以 -1，分别写出每一项的乘积。', '先保留字母项和常数项的两个乘积，再检查符号，最后合并同类项。'];
+      explanation = '分别乘到括号中的每一项，再合并同类项，得到 ' + answer + '。';
+    } else if (skill === 'balance') {
+      equation = level === 0 ? 'x - ' + b + ' = ' + (x - b) : level === 1 ? a + 'x + ' + b + ' = ' + (a * x + b) : a + 'x - ' + b + ' = ' + (a * x - b);
+      prompt = '解方程：' + equation + '。（填写 x 的值）'; answer = String(x);
+      hints = ['你想先消去 x 旁边的哪一项？等式两边要一起做什么？', '先在两边做相同的加减运算，消去常数项。', '常数消去后，等式两边再同时除以 x 的系数。'];
+      explanation = '先同时消去常数项，再同时除以系数，得到 x = ' + answer + '。';
+    } else if (skill === 'solve') {
+      equation = level === 0 ? a + '(x + ' + b + ') = ' + (a * (x + b)) : level === 1 ? a + '(x - ' + b + ') + ' + b + ' = ' + (a * (x - b) + b) : '-' + a + '(x - ' + b + ') = ' + (-(a - 1) * x + a * b) + ' - ' + (a - 1) + 'x';
+      if (level === 2) equation = '-' + a + '(x - ' + b + ') = ' + (-x + a * b) + ' - ' + (a - 1) + 'x';
+      prompt = '解方程：' + equation + '。（填写 x 的值，可写关键步骤）'; answer = String(x);
+      hints = ['先观察括号和等号：你准备先处理哪个结构？', '先去括号，再将含 x 的项与常数项分别整理；每一步都保持两边相等。', '写出整理后的“系数 × x = 常数”，再考虑用哪个相同运算得到 x。'];
+      explanation = '去括号、保持等式两边同做运算，整理后得到 x = ' + answer + '；代回原式检查。';
+    } else if (skill === 'verify') {
+      const proposed = level === 0 ? x : x + 1, lhs = a * proposed + b, rhs = a * x + b;
+      equation = a + 'x + ' + b + ' = ' + rhs;
+      prompt = '对于方程 ' + equation + '，同学说 x = ' + proposed + '。哪一项检验最完整？'; type = 'choice'; answer = 'B';
+      choices = [{ key: 'A', text: '答案是整数，所以正确' }, { key: 'B', text: '代回原方程：左边为 ' + lhs + '，右边为 ' + rhs + '，所以' + (lhs === rhs ? '成立' : '不成立') }, { key: 'C', text: '只检查最后一步算式就足够' }];
+      hints = ['要验证一个解，应代入原方程还是只看最后一步？', '分别计算原方程左边和右边，再比较两个结果。', '完整检验要同时包含代入位置、左右计算结果和是否相等。'];
+      explanation = '代入原方程，左边为 ' + lhs + '，右边为 ' + rhs + '，所以' + (lhs === rhs ? '成立' : '不成立') + '。';
+    } else {
+      const noun = context === 'tickets' ? '张门票' : context === 'stationery' ? '支笔' : '本书', cost = a * x + b;
+      prompt = '买了 ' + a + ' ' + noun + '，每份 x 元，另付 ' + b + ' 元费用，共花 ' + cost + ' 元。哪一个方程表示这件事？';
+      type = 'choice'; answer = 'C'; choices = [{ key: 'A', text: a + '(x + ' + b + ') = ' + cost }, { key: 'B', text: a + ' + x + ' + b + ' = ' + cost }, { key: 'C', text: a + 'x + ' + b + ' = ' + cost }];
+      hints = ['先分别找出单价、数量和额外费用。', '购买部分的总价，应怎样用“单价”和“数量”表示？', '把购买部分的费用与只付一次的额外费用相加，再与总费用相等。'];
+      explanation = '购买部分为 ' + a + 'x 元，额外费用只加一次，所以 ' + a + 'x + ' + b + ' = ' + cost + '。';
+    }
+    if (choices) {
+      const shift = (a + b + x) % 3, original = choices.find(c => c.key === answer);
+      choices = choices.slice(shift).concat(choices.slice(0, shift)).map((c, i) => ({ key: 'ABC'[i], text: c.text, correct: c === original }));
+      answer = choices.find(c => c.correct).key; choices = choices.map(({ key, text }) => ({ key, text }));
+    }
+    const id = ['ai5', skill, level, a, b, x, context].join('_');
+    const q = { id, skillId: skill, topicId: skills[skill].topicId, dimension: skills[skill].dimension, level, difficulty: ['basic', 'standard', 'advanced'][level], b: [-1.3, -.35, .6][level], prompt, answer, type, choices, hints, explanation, equation, params: { a, b, x, context }, calibration: 'experimental-manual', family: skill + ':' + level };
+    if (!validateQuestion(q)) throw Error('invalid generated mathematics');
+    return q;
+  }
+  function validateQuestion(q) {
+    try {
+      if (q.type === 'expression') { MathCheck.expression(q.answer); const m = q.level === 0 ? 1 : q.level === 1 ? -1 : -q.params.a; const original = m + '*(x-' + q.params.b + ')' + (q.level === 2 ? '+' + q.params.a + '*x' : ''); return MathCheck.equivalent(original, q.answer); }
+      if (q.type === 'numeric') return Number.isFinite(Number(q.answer)) && (!q.equation || Math.abs(MathCheck.solve(q.equation) - Number(q.answer)) < 1e-8);
+      return q.type === 'choice' && q.choices.length === 3 && q.choices.some(c => c.key === q.answer) && new Set(q.choices.map(c => c.text)).size === 3;
+    } catch (_) { return false; }
+  }
+  function fromId(id) { const p = String(id).split('_'); if (p.length !== 7 || p[0] !== 'ai5') throw Error('unknown question'); return blueprint(p[1], Number(p[2]), { a: Number(p[3]), b: Number(p[4]), x: Number(p[5]), context: p[6] }); }
+  function independent(attempts) {
+    const seen = new Set(); return attempts.filter(r => { if (r.assisted || r.repeated || !['correct', 'wrong'].includes(r.outcome) || seen.has(r.contentKey)) return false; seen.add(r.contentKey); return true; });
+  }
+  function estimate(attempts, skill) {
+    const rows = independent(attempts).filter(r => !skill || r.skillId === skill).slice(-30);
+    const grid = [];
+    for (let i = 0; i <= 60; i++) { const theta = -3 + i * .1; let log = -.5 * theta * theta; for (const r of rows) { const p = sigmoid(theta - r.itemB); log += Math.log(r.outcome === 'correct' ? p : 1 - p); } grid.push({ theta, log }); }
+    const max = Math.max(...grid.map(x => x.log)); let weight = 0, mean = 0;
+    for (const g of grid) { g.w = Math.exp(g.log - max); weight += g.w; mean += g.theta * g.w; } mean /= weight;
+    const sd = Math.sqrt(grid.reduce((n, g) => n + g.w * (g.theta - mean) ** 2, 0) / weight);
+    return { theta: Math.round(mean * 100) / 100, sd: Math.round(sd * 100) / 100, n: rows.length, experimental: true };
+  }
+  function profile(attempts) {
+    const rows = independent(attempts);
+    return dimensions.map(d => { const evidence = rows.filter(r => r.dimension === d.id), n = evidence.length, correct = evidence.filter(r => r.outcome === 'correct').length; return { ...d, n, correct, value: n >= 3 ? Math.round((correct + 1) / (n + 2) * 100) : null, status: n === 0 ? '未覆盖' : n < 3 ? '证据较少' : '实验估计', attempts: evidence.map(r => r.id) }; });
+  }
+  function create(options = {}) {
+    return { version: 5, id: options.id || 'offline-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10), revision: 0, phase: 'diagnose', attempts: [], events: [], decisions: [], hypotheses: [], exposed: [], current: null, feedback: null, draft: {}, counters: {}, nextPlan: null, finished: false, startedAt: Date.now(), aiEnabled: !!options.aiEnabled, preferredSkill: Object.hasOwn(skills, options.skill) ? options.skill : 'distribute', limit: 24 };
+  }
+  function levelFor(state, skill, preferred) {
+    if (Number.isInteger(preferred)) return clamp(preferred, 0, 2);
+    const est = estimate(state.attempts, skill);
+    const candidates = [-1.3, -.35, .6].map((b, i) => ({ i, p: sigmoid(est.theta - b) }));
+    return candidates.sort((a, b) => Math.abs(a.p - .7) - Math.abs(b.p - .7))[0].i;
+  }
+  function pick(state, skill, stage, level, generated) {
+    const used = new Set(state.exposed), start = state.counters[skill] || 0;
+    let q;
+    if (generated) { try { q = blueprint(skill, level, generated); if (used.has(q.prompt)) q = null; else q.origin = 'ai-parameters'; } catch (_) {} }
+    for (let n = start; !q && n < start + 120; n++) {
+      const params = { a: 2 + n % 11, b: 2 + Math.floor(n / 3) % 19, x: 2 + n % 19, context: ['books', 'tickets', 'stationery'][n % 3] };
+      const candidate = blueprint(skill, level, params); state.counters[skill] = n + 1;
+      if (!used.has(candidate.prompt)) q = candidate;
+    }
+    if (!q) { state.finished = true; state.finishReason = '当前可用的新题已完成，记录已保存。'; return null; }
+    state.current = { question: q, stage, hintCount: 0, revealed: false, retry: false, activeMs: 0, displayedAt: Date.now() };
+    state.exposed.push(q.prompt); state.draft = {}; state.feedback = null; state.phase = stage;
+    return q;
+  }
+  function next(state) {
+    if (state.finished) return null;
+    if (state.current && !state.feedback) return state.current.question;
+    if (state.attempts.length >= state.limit) { state.finished = true; state.finishReason = '本轮学习已完成，下一次可以继续验证与巩固。'; return null; }
+    const plan = state.nextPlan;
+    if (plan?.action === 'finish') { state.finished = true; state.finishReason = plan.reason; return null; }
+    if (plan) {
+      state.nextPlan = null;
+      const q = pick(state, plan.targetSkill, plan.action === 'hint' ? 'practice' : plan.action, levelFor(state, plan.targetSkill, plan.level), plan.parameters);
+      if (q && plan.action === 'hint') hint(state);
+      return q;
+    }
+    return pick(state, state.preferredSkill, 'diagnose', 1);
+  }
+  function candidates(state) {
+    const last = state.attempts.at(-1), q = state.current?.question;
+    if (!last || !q) return [];
+    const own = { targetSkill: last.skillId }, list = [];
+    if (last.outcome === 'not_learned') return [{ action: 'hint', ...own, level: 0 }];
+    if (last.outcome === 'skip') return [{ action: 'probe', ...own, level: 0 }, { action: 'practice', ...own, level: q.level }];
+    if (last.outcome === 'wrong') {
+      list.push({ action: 'probe', ...own, level: 0 }, ...skills[last.skillId].prerequisites.map(s => ({ action: 'prerequisite', targetSkill: s, level: 0 })), { action: 'hint', ...own, level: q.level });
+    } else if (last.assisted || last.repeated) list.push({ action: 'retest', ...own, level: q.level });
+    else {
+      const recent = independent(state.attempts).filter(r => r.skillId === last.skillId).slice(-3), enough = recent.length >= 2 && recent.slice(-2).every(r => r.outcome === 'correct');
+      list.push({ action: 'practice', ...own, level: levelFor(state, last.skillId) }, { action: 'retest', ...own, level: q.level });
+      if (enough) {
+        list.push({ action: 'challenge', ...own, level: Math.min(2, q.level + 1) });
+        const untested = targetSkills.find(s => !independent(state.attempts).some(r => r.skillId === s));
+        if (untested) list.push({ action: 'probe', targetSkill: untested, level: 1 });
+      }
+      if (last.stage === 'prerequisite' && state.decisions.length) {
+        const prior = [...state.attempts].reverse().find(r => r.outcome === 'wrong' && skills[r.skillId].prerequisites.includes(last.skillId));
+        if (prior) list.push({ action: 'retest', targetSkill: prior.skillId, level: 0 });
+      }
+    }
+    if (state.attempts.length >= state.limit - 1) list.push({ action: 'finish', ...own, level: 0 });
+    return list.filter((p, i, a) => a.findIndex(x => x.action === p.action && x.targetSkill === p.targetSkill && x.level === p.level) === i);
+  }
+  function localPlan(state) {
+    const last = state.attempts.at(-1), options = candidates(state);
+    if (!options.length) throw Error('no teaching decision');
+    let choice = options[0];
+    if (last.outcome === 'wrong' && last.stage === 'probe') choice = options.find(p => p.action === 'prerequisite') || options.find(p => p.action === 'hint') || choice;
+    if (last.outcome === 'wrong' && last.steps && /括号|\(/.test(last.steps)) choice = options.find(p => p.targetSkill === 'distribute') || choice;
+    if (last.outcome === 'correct' && !last.assisted) choice = options.find(p => p.action === 'retest' && p.targetSkill !== last.skillId) || options.find(p => p.action === 'probe' && p.targetSkill !== last.skillId) || options.find(p => p.action === 'challenge') || choice;
+    const reason = last.outcome === 'not_learned' ? '先了解这个方法，再用新题练习。' : last.outcome === 'skip' ? '先做一个更短的检查，看看卡在哪一步。' : last.assisted ? '这次获得了提示，下一题换个数独立试一次。' : last.outcome === 'wrong' ? last.steps ? '结合这一步的作答，先用小检查确认具体卡点。' : '只有最终答案还不能确定错因，先用一个小检查补充线索。' : '这一步独立完成了，接下来换题继续确认和拓展。';
+    return { ...choice, reason, source: 'rules', evidenceIds: [last.id], rootId: last.outcome === 'wrong' ? last.skillId : null };
+  }
+  function applyPlan(state, plan) {
+    const allowed = candidates(state), choice = allowed.find(c => c.action === plan.action && c.targetSkill === plan.targetSkill && c.level === plan.level);
+    if (!choice) throw Error('decision outside allowed actions');
+    if (typeof plan.reason !== 'string' || !plan.reason.trim()) throw Error('missing decision reason');
+    const ids = Array.isArray(plan.evidenceIds) ? plan.evidenceIds : [];
+    if (!ids.length || ids.some(id => !state.attempts.some(r => r.id === id))) throw Error('unknown evidence');
+    const safe = { ...choice, reason: plan.reason.slice(0, 220), source: plan.source === 'ai' ? 'ai' : 'rules', provider: plan.provider || null, evidenceIds: ids, rootId: Object.hasOwn(roots, plan.rootId) ? plan.rootId : null, at: Date.now(), estimate: estimate(state.attempts, choice.targetSkill) };
+    if (plan.parameters) { const generated = blueprint(choice.targetSkill, choice.level, plan.parameters); safe.parameters = generated.params; }
+    state.nextPlan = safe; state.decisions.push(safe);
+    if (safe.rootId && state.attempts.at(-1).outcome === 'wrong') {
+      let hypothesis = state.hypotheses.find(h => h.rootId === safe.rootId);
+      if (!hypothesis) { hypothesis = { rootId: safe.rootId, label: roots[safe.rootId].label, evidenceIds: [], status: '待检查' }; state.hypotheses.push(hypothesis); }
+      for (const id of ids) if (!hypothesis.evidenceIds.includes(id)) hypothesis.evidenceIds.push(id);
+      const support = independent(state.attempts).filter(r => hypothesis.evidenceIds.includes(r.id) && r.outcome === 'wrong' && r.skillId === safe.rootId);
+      hypothesis.status = support.length >= 2 ? '多题支持，仍待复测' : '待检查';
+    }
+    return safe;
+  }
+  function record(state, answer, steps = '', activeMs = 0, outcomeOverride) {
+    if (!state.current || state.feedback || state.finished) throw Error('没有可提交的题目。');
+    const c = state.current, q = c.question;
+    if (outcomeOverride && !['skip', 'not_learned'].includes(outcomeOverride)) throw Error('invalid outcome');
+    const verdict = outcomeOverride || MathCheck.judge(q, answer).verdict;
+    if (verdict === 'invalid') throw Error(q.type === 'expression' ? '请填写化简后的式子，例如 -x + 3。' : q.type === 'choice' ? '请先选择一个选项。' : '请填写数值或分数，例如 1/2。');
+    const row = { id: state.id + '-a' + (state.attempts.length + 1), mode: 'ai-unit', sessionId: state.id, questionId: q.id, contentKey: q.type + '|' + q.prompt.replace(/\s/g, ''), topicId: q.topicId, skillId: q.skillId, dimension: q.dimension, stage: c.stage, difficulty: q.difficulty, itemB: q.b, calibration: q.calibration, outcome: verdict, userAnswer: String(answer).slice(0, 180), steps: String(steps).slice(0, 1000), assisted: c.hintCount > 0 || c.revealed || c.retry, hintCount: c.hintCount, revealed: c.revealed, repeated: c.retry || state.attempts.some(r => r.questionId === q.id), elapsedMs: clamp(Number(activeMs) || 0, 0, 1800000), at: Date.now(), origin: q.origin || 'validated-template' };
+    state.attempts.push(row); state.feedback = { record: row, label: verdict === 'correct' ? row.assisted ? '提示后完成' : '独立完成' : verdict === 'wrong' ? '先保留这条线索' : verdict === 'skip' ? '先做一个小检查' : '先了解这个方法', diagnosis: null };
+    state.revision++; return row;
+  }
+  function hint(state) {
+    if (!state.current || state.finished) throw Error('当前没有提示。');
+    const c = state.current; c.hintCount = Math.min(3, c.hintCount + 1); state.revision++;
+    const text = c.question.hints[c.hintCount - 1]; state.events.push({ type: 'hint', questionId: c.question.id, level: c.hintCount, at: Date.now() });
+    return text;
+  }
+  function reveal(state) { if (!state.current) throw Error('没有当前题目。'); state.current.revealed = true; state.revision++; state.events.push({ type: 'reveal', questionId: state.current.question.id, at: Date.now() }); }
+  function retry(state) { if (!state.feedback || !state.current) throw Error('当前不能重试。'); state.current.retry = true; state.feedback = null; state.draft = {}; state.revision++; }
+  function view(state) {
+    const c = state.current, q = c?.question;
+    const publicQ = q ? { id: q.id, skillId: q.skillId, topicId: q.topicId, level: q.level, difficulty: q.difficulty, type: q.type, prompt: q.prompt, choices: q.choices, origin: q.origin || 'validated-template' } : null;
+    const showAnswer = c?.revealed || state.feedback?.record.outcome === 'correct';
+    if (showAnswer && publicQ) { publicQ.answer = q.answer; publicQ.explanation = q.explanation; }
+    return { id: state.id, revision: state.revision, phase: state.phase, finished: state.finished, finishReason: state.finishReason, aiEnabled: state.aiEnabled, question: publicQ, hintCount: c?.hintCount || 0, hint: c?.aiHint || (c?.hintCount ? q.hints[c.hintCount - 1] : null), hintSource: c?.hintSource || 'rules', report: state.report || null, revealed: !!c?.revealed, retrying: !!c?.retry, feedback: state.feedback, nextPlan: state.nextPlan, attempts: state.attempts, decisions: state.decisions, hypotheses: state.hypotheses, dimensions: profile(state.attempts), estimate: estimate(state.attempts), targetBand: [.65, .75], calibration: '实验参数，未经学生数据校准' };
+  }
+  return { dimensions, skills, roots, targetSkills, actionNames, levelNames, configureGraph, blueprint, fromId, validateQuestion, independent, estimate, profile, create, pick, next, candidates, localPlan, applyPlan, record, hint, reveal, retry, view, sigmoid };
+});
