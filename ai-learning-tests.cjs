@@ -57,4 +57,89 @@ test('Knowledge graph candidates retain actual source paths and use the correct 
   for (const p of links) for (let i = 1; i < p.path.length; i++) assert.ok(edges.some(e => e.topicId === p.path[i - 1] && e.prerequisiteId === p.path[i]));
   assert.equal(C.skills.model.topicId, 'cnm_045'); assert.equal(C.skills.verify.topicId, 'cnm_039');
 });
+
+test('Expansion goals reject unchanged and unfinished equivalent expressions without inventing an error response', () => {
+  const q = C.blueprint('distribute', 1, { a: 3, b: 3, x: 5 });
+  for (const answer of ['-(x-3)', '（−Ｘ＋３）', '-x+1+2', '2x-3x+3', '-x+3+0']) {
+    assert.equal(M.judge(q, answer).verdict, 'incomplete', answer);
+  }
+  for (const answer of ['-x+3', '3-x', '-1x+3', '-1*x+3', '−Ｘ＋3'.replace('＋', '+')]) assert.equal(M.judge(q, answer).verdict, 'correct', answer);
+  assert.equal(M.judge(q, '-x-3').verdict, 'wrong');
+  const s = state(), before = s.revision;
+  assert.throws(() => C.record(s, '-(x-' + s.current.question.params.b + ')'), /还需要/);
+  assert.equal(s.attempts.length, 0); assert.equal(s.revision, before); assert.equal(s.feedback, null);
+});
+test('Simplified goals accept rational terms and canonical constant answers while retaining arithmetic safety', () => {
+  const q = { type: 'expression', skillId: 'distribute', answer: '-x/2+3/2' };
+  for (const answer of ['3/2-x/2', '-1/2*x+1.5', '-0.5x+1.5']) assert.equal(M.judge(q, answer).verdict, 'correct', answer);
+  const advanced = C.blueprint('distribute', 2, { a: 3, b: 4, x: 5 });
+  assert.equal(advanced.answer, '12'); assert.equal(M.judge(advanced, '0x+12').verdict, 'incomplete');
+  assert.equal(M.judge(advanced, '-3x+12+3x').verdict, 'incomplete'); assert.equal(M.judge(advanced, '12').verdict, 'correct'); assert.equal(M.judge(advanced, '(12)').verdict, 'correct');
+  assert.equal(M.judge({ type: 'expression', answer: 'x+3' }, '(x+3)').verdict, 'correct');
+});
+function recordAt(s, skill, level, correct = true, hint = false) {
+  C.pick(s, skill, 'probe', level);
+  if (hint) C.hint(s);
+  return C.record(s, correct ? s.current.question.answer : '999');
+}
+function suspected(root = 'distribute') {
+  const s = state(); recordAt(s, 'distribute', 1, false);
+  C.applyPlan(s, { ...C.localPlan(s), rootId: root }); return s;
+}
+test('Two independent new checks can withdraw an inferred prerequisite hypothesis while preserving its source evidence', () => {
+  const s = suspected('sign'), h = s.hypotheses[0], original = h.evidenceIds[0];
+  recordAt(s, 'sign', 0); assert.equal(h.statusCode, 'pending');
+  recordAt(s, 'sign', 0); assert.equal(h.statusCode, 'not_supported'); assert.equal(h.supportIds.length, 0);
+  assert.equal(h.passingEvidenceIds.length, 2); assert.ok(h.evidenceIds.includes(original)); assert.ok(h.history.some(e => e.code === 'pending'));
+});
+test('Hints, repeated attempts, unrelated skills and lower-level passes cannot close a harder suspected gap', () => {
+  const s = suspected(), h = s.hypotheses[0];
+  recordAt(s, 'distribute', 0); recordAt(s, 'distribute', 0); assert.equal(h.statusCode, 'pending');
+  recordAt(s, 'balance', 2); recordAt(s, 'balance', 2); assert.equal(h.statusCode, 'pending');
+  recordAt(s, 'distribute', 1, true, true); C.retry(s); C.record(s, s.current.question.answer);
+  recordAt(s, 'distribute', 1, true, true); assert.equal(h.statusCode, 'pending'); assert.equal(h.passingEvidenceIds.length, 0);
+});
+test('Independent retests record improvement and later errors reopen the same hypothesis without deleting history', () => {
+  const s = suspected(), h = s.hypotheses[0];
+  recordAt(s, 'distribute', 1); recordAt(s, 'distribute', 1); assert.equal(h.statusCode, 'improved');
+  assert.equal(C.reportFacts(s).active, 0);
+  recordAt(s, 'distribute', 1, false); assert.equal(h.statusCode, 'reopened'); assert.equal(h.passingEvidenceIds.length, 0);
+  recordAt(s, 'distribute', 1, false); assert.equal(h.statusCode, 'supported');
+  recordAt(s, 'distribute', 1); recordAt(s, 'distribute', 2); assert.equal(h.statusCode, 'improved');
+  assert.ok(h.history.some(e => e.code === 'reopened'));
+});
+test('Teaching a suspected prerequisite before retesting records independent progress rather than claiming the original hypothesis was disproved', () => {
+  const s = suspected('sign'); recordAt(s, 'sign', 0, true, true); recordAt(s, 'sign', 0); recordAt(s, 'sign', 0);
+  assert.equal(s.hypotheses[0].statusCode, 'improved');
+});
+test('Evidence classifications do not overlap or let an earlier assisted exposure become a later independent observation', () => {
+  const base = { outcome: 'correct', skillId: 'sign', dimension: 'symbol' };
+  const rows = [{ ...base, id: 'a', contentKey: 'a' }, { ...base, id: 'b', contentKey: 'b', assisted: true }, { ...base, id: 'c', contentKey: 'b' }, { ...base, id: 'd', contentKey: 'd', assisted: true, repeated: true }, { id: 'e', outcome: 'skip' }, { id: 'f', outcome: 'not_learned' }, { ...base, id: 'g', evidenceEligible: false }];
+  const e = C.evidenceSummary(rows);
+  assert.equal(e.independent, 1); assert.equal(e.assisted, 1); assert.equal(e.repeated, 2);
+  assert.equal(e.independent + e.assisted + e.repeated + e.skipped + e.notLearned + e.needsReview, e.total);
+});
+test('Previously accepted unfinished answers are retained but excluded from both unit and grade evidence', () => {
+  const q = C.blueprint('distribute', 1), old = { id: 'old', mode: 'ai-unit', questionId: q.id, contentKey: q.prompt, skillId: q.skillId, topicId: q.topicId, dimension: q.dimension, outcome: 'correct', userAnswer: '-(x-5)', itemB: q.b };
+  const row = C.auditAttempts([old])[0]; assert.equal(row.outcome, 'correct'); assert.equal(row.userAnswer, old.userAnswer);
+  assert.equal(row.evidenceEligible, false); assert.equal(C.estimate([row]).n, 0); assert.equal(C.profile([row])[0].n, 0);
+  const Trainer = require('./source/trainer.js').createEngine({ topics: require('./source/topics.json'), questions: require('./source/questions.json'), dependencies: require('./source/dependencies.json') }, require('./source/learning-unit.js'));
+  assert.equal(Trainer.evidence([row], q.topicId).n, 0);
+  const legacy = state(); C.pick(legacy, 'distribute', 'practice', 2, { a: 3, b: 4, x: 5, context: 'books' });
+  legacy.current.question.answer = '0x + 12'; legacy.current.revealed = true;
+  assert.equal(C.view(legacy).question.answer, '12');
+});
+test('Legacy hypotheses upgrade from actual retained evidence and do not fabricate missing source records', () => {
+  const s = suspected('sign'); delete s.hypotheses[0].triggerIds; delete s.hypotheses[0].history; delete s.hypotheses[0].statusCode;
+  recordAt(s, 'sign', 0); recordAt(s, 'sign', 0);
+  const copy = JSON.parse(JSON.stringify(s)); assert.equal(C.view(copy).hypotheses[0].statusCode, 'not_supported');
+  copy.attempts = []; C.refreshHypotheses(copy); assert.equal(copy.hypotheses[0].statusCode, 'pending'); assert.match(copy.hypotheses[0].explanation, /原始作答/);
+});
+test('Narrative reports are invalidated by later responses while current facts remain available', () => {
+  const s = suspected(); const facts = C.reportFacts(s);
+  s.report = { source: 'rules', summary: facts.summary, advice: facts.advice, evidenceKey: facts.evidenceKey };
+  assert.ok(C.view(s).report); recordAt(s, 'distribute', 1);
+  assert.equal(C.view(s).report, null); assert.equal(C.view(s).reportStale, true); assert.equal(C.view(s).facts.counts.independent, 2);
+});
+
 console.log(JSON.stringify({ aiLearningPassed: passed, generatedCasesChecked: 1440, liveModelCalls: 0 }));

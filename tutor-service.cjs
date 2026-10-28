@@ -51,7 +51,8 @@ function createHandler(options = {}) {
     const graphLink = graphEvidence.find(e => e.skillId === state.attempts.at(-1).skillId && e.prerequisiteSkill === accepted.targetSkill);
     if (graphLink) accepted.knowledgePath = graphLink.path;
     if (plan.fallbackReason) accepted.fallbackReason = plan.fallbackReason;
-    state.feedback.diagnosis = accepted.rootId ? { label: Core.roots[accepted.rootId].label, status: '待小检查验证', evidenceIds: accepted.evidenceIds } : null;
+    const hypothesis = state.hypotheses.find(h => h.rootId === accepted.rootId);
+    state.feedback.diagnosis = state.attempts.at(-1).outcome === 'wrong' && hypothesis && !['improved', 'not_supported'].includes(hypothesis.statusCode) ? { label: hypothesis.label, status: hypothesis.status, evidenceIds: hypothesis.evidenceIds } : null;
     return accepted;
   }
   async function makeHint(state) {
@@ -91,15 +92,16 @@ function createHandler(options = {}) {
       else if (action === 'next') { if (!state.feedback) throw error(409, '请先完成当前题目。'); Core.next(state); state.revision++; }
       else if (action === 'mode') { state.aiEnabled = !!input.aiEnabled; state.revision++; }
       else if (action === 'report') {
-        state.report = { at: Date.now(), source: 'rules', summary: '本单元画像只依据不同新题的独立作答。提示后的完成和重复题单独保存；尚未覆盖的维度保持未知。', advice: '继续检查待确认的卡点，并用未见过的新题独立验证。' };
+        const facts = Core.reportFacts(state);
+        state.report = { at: Date.now(), source: 'rules', summary: facts.summary, advice: facts.advice, evidenceKey: facts.evidenceKey };
         const config = getConfig();
         if (state.aiEnabled && config.key && config.model && state.attempts.length && active < 2) {
           active++;
-          try { const result = await Provider.callJSON(config, '你是数学单元学习报告助手。只解释给出的实验估计和作答证据，不新增数值，不推断一般智力或学习能力。辅助完成和独立表现必须区分；错因保持假设，未覆盖维度说证据不足。总结不超过100字，建议不超过80字。只输出JSON：{"summary":"…","advice":"…"}。', { dimensions: Core.profile(state.attempts), hypotheses: state.hypotheses, independent: Core.independent(state.attempts).length, assisted: state.attempts.filter(r => r.assisted).length, decisions: state.decisions.slice(-5) }, { fetchImpl: options.fetchImpl, tokens: 500 }); if (typeof result.summary !== 'string' || typeof result.advice !== 'string' || /\d\s*%/.test(result.summary + result.advice)) throw Error('report invalid'); state.report = { at: Date.now(), source: 'ai', provider: config.label, summary: result.summary.slice(0, 400), advice: result.advice.slice(0, 300) }; } catch (_) {} finally { active--; }
+          try { const result = await Provider.callJSON(config, '你是数学单元学习报告助手。只解释给出的作答事实，不新增数值，不推断一般智力、心流或标准化能力。counts的分类互斥；提示完成和重复题不算独立通过。hypotheses.status是程序按实际新题更新的状态，必须保留“暂不支持原判断”“本轮复测通过，待复习验证”和“再次出现”的区别，不得把已排除的猜测继续当作卡点。证据不足保持未知。不要宣称已掌握、确定根因或教学效果。总结不超过100字，建议不超过80字。只输出JSON：{"summary":"…","advice":"…"}。', { facts: { counts: facts.counts, summary: facts.summary, advice: facts.advice }, dimensions: Core.profile(state.attempts), hypotheses: state.hypotheses, decisions: state.decisions.slice(-5) }, { fetchImpl: options.fetchImpl, tokens: 500 }); if (typeof result.summary !== 'string' || typeof result.advice !== 'string' || /\d\s*%|已[经]?掌握|确定根因|测得心流/.test(result.summary + result.advice)) throw Error('report invalid'); state.report = { at: Date.now(), source: 'ai', provider: config.label, summary: result.summary.slice(0, 400), advice: result.advice.slice(0, 300), evidenceKey: facts.evidenceKey }; } catch (_) {} finally { active--; }
         }
         state.revision++;
       } else throw error(400, '未知的学习操作。');
-      save(); const result = Core.view(state); result.report = state.report || null; result.hint = state.current?.aiHint || result.hint; result.hintSource = state.current?.hintSource || 'rules'; return result;
+      save(); return Core.view(state);
     } finally { busy.delete(id); }
   };
 }

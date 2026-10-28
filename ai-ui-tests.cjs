@@ -24,4 +24,47 @@ test('An intentional reveal marks a later success as assisted and repeated retri
 test('Five-axis reports live on the report page and missing axes are not rendered as zero scores', () => { const a = boot(); a.start(); a.answer(); a.click('[data-ai="report-nav"]'); assert.equal(a.window.document.querySelector('.ai-card'), null); assert.ok(a.find('.ai-radar')); assert.match(a.find('.ai-unit-report').textContent, /证据较少/); assert.equal(a.window.document.querySelectorAll('.ai-radar circle').length, 0); a.click('[data-ai="report"]'); assert.match(a.find('.ai-unit-report').textContent, /本地分析/); });
 test('The new unit does not mix records or drafts across student profiles', () => { const a = boot(); a.start(); a.answer(true); a.click('[data-action="new-profile"]'); a.fill('#new-profile-name', '另一同学'); a.click('#create-profile'); assert.equal(a.profile().records.length, 0); assert.equal(a.profile().aiUnit, undefined); });
 test('Normal topic practice and the knowledge graph remain reachable from the pilot unit', () => { const a = boot(); a.start(); a.click('[data-ai="exit"]'); assert.ok(a.find('[data-action="submit"]')); a.click('[data-primary="graph"]'); assert.ok(a.find('#knowledge-graph-root')); });
+
+test('An unfinished equivalent expression keeps the draft editable and never appears as a wrong or correct attempt', () => {
+  const a = boot(); a.start(); const q = C.fromId(a.unit().view.question.id), original = '-(x-' + q.params.b + ')';
+  a.fill('#ai-answer', original); a.fill('#ai-steps', '我先抄下式子'); a.click('[data-ai="submit"]');
+  assert.equal(a.unit().view.attempts.length, 0); assert.equal(a.profile().records.length, 0);
+  assert.equal(a.find('#ai-answer').value, original); assert.equal(a.find('#ai-steps').value, '我先抄下式子');
+  assert.match(a.find('[role="alert"]').textContent, /还需要/); assert.equal(a.window.document.querySelector('.feedback-box'), null);
+});
+test('Report facts lead the unit report and categories do not double-count a hinted retry', () => {
+  const a = boot(); a.start(); a.answer(true); a.click('[data-ai="retry"]'); a.answer(); a.click('[data-ai="report-nav"]');
+  const text = a.find('.ai-unit-report').textContent; assert.match(text, /1 道新题独立作答/); assert.match(text, /1 次重复作答/);
+  assert.ok(!text.includes('1 次提示后作答')); assert.match(text, /最近最多六道/);
+  assert.ok(a.find('.ai-unit-report').innerHTML.indexOf('ai-facts') < a.find('.ai-unit-report').innerHTML.indexOf('ai-radar'));
+});
+test('Reload rechecks old accepted drafts and refreshes a stale grade report without losing original records', () => {
+  let a = boot(); a.start(); a.answer(); a.click('[data-ai="report-nav"]'); a.click('[data-action="generate-report"]');
+  const db = a.db(), p = db.profiles[0], q = C.fromId(p.aiUnit.view.question.id), original = '-(x-' + q.params.b + ')';
+  p.records[0].userAnswer = original; p.aiUnit.state.attempts[0].userAnswer = original;
+  p.aiUnit.state.report = { source: 'ai', summary: '过时的模型结论' }; delete p.reports[7].schemaVersion;
+  a.store.set(KEY, JSON.stringify(db)); a = boot(a.store);
+  assert.equal(a.profile().records.length, 1); assert.equal(a.profile().records[0].userAnswer, original);
+  assert.equal(a.profile().records[0].evidenceEligible, false); assert.equal(a.profile().reports[7].independent, 0);
+  assert.match(a.find('.ai-unit-report').textContent, /1 条旧记录待复核/); assert.ok(!a.find('.ai-unit-report').textContent.includes('过时的模型结论'));
+});
+test('Resolved hypotheses are shown with their evidence and do not remain labelled as active difficulties', () => {
+  const a = boot(); a.start(); a.answer(true); const db = a.db(), p = db.profiles[0], s = p.aiUnit.state;
+  for (let n = 0; n < 2; n++) { C.pick(s, 'distribute', 'retest', 1); C.record(s, s.current.question.answer); }
+  p.records = s.attempts; db.ui.screen = 'report'; a.store.set(KEY, JSON.stringify(db)); const b = boot(a.store);
+  assert.match(b.find('.ai-roots').textContent, /本轮独立复测通过/); assert.match(b.find('.ai-roots').textContent, /查看作答依据/);
+  assert.equal(b.unit().view.facts.active, 0); assert.equal(b.unit().view.facts.resolved, 1);
+});
+
+
+test('Starting another offline round preserves suspected gaps and their status history just like the backend', () => {
+  const a = boot(); a.start();
+  for (let n = 0; n < 30 && !a.unit().view.finished; n++) { a.answer(true); a.click('[data-ai="next"]'); }
+  assert.equal(a.unit().view.finished, true);
+  const oldId = a.unit().state.id, trigger = a.unit().state.hypotheses[0].triggerIds[0], history = a.unit().state.hypotheses[0].history.map(h => h.code), count = a.profile().records.length;
+  a.click('[data-ai="start"]');
+  assert.notEqual(a.unit().state.id, oldId); assert.ok(a.unit().state.hypotheses[0].triggerIds.includes(trigger));
+  assert.deepEqual(a.unit().state.hypotheses[0].history.map(h => h.code), history);
+  assert.equal(a.profile().records.length, count);
+});
 console.log(JSON.stringify({ aiUiPassed: passed, liveModelCalls: 0, fixtureOnly: true }));

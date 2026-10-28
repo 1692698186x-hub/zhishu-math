@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 async function main() {
-  const base = 'http://127.0.0.1:8877';
+  const base = process.env.ZHISHU_CHECK_URL || 'http://127.0.0.1:8877';
   const post = async (action, input) => { const res = await fetch(base + '/api/unit/' + action, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) }); const body = await res.json(); assert.equal(res.status, 200, body.error); return body; };
   let state = await post('start', { aiEnabled: true });
   const send = async (action, extra = {}) => state = await post(action, { sessionId: state.id, revision: state.revision, ...extra });

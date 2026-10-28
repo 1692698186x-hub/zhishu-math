@@ -45,6 +45,35 @@ async function main() {
   await test('Stored sessions reload without fabricating or losing response evidence', async () => {
     const storePath = path.join(__dirname, '.local', 'fixture-session-' + Date.now() + '.json'); const h1 = createHandler({ storePath, getConfig: () => noConfig }); const s = await h1('start', {}); const a = await h1('answer', { sessionId: s.id, revision: s.revision, questionId: s.question.id, answer: '999' }); const h2 = createHandler({ storePath, getConfig: () => noConfig }); const b = await h2('resume', { sessionId: s.id }); assert.equal(a.attempts[0].id, b.attempts[0].id); assert.equal(b.question.answer, undefined);
   });
+
+  await test('Unfinished equivalent answers keep the current question and cannot trigger an AI decision or evidence update', async () => {
+    const h = createHandler({ persist: false, getConfig: () => noConfig });
+    const s = await h('start', { aiEnabled: false }), q = require('./source/ai-learning.js').fromId(s.question.id);
+    await assert.rejects(h('answer', { sessionId: s.id, revision: s.revision, questionId: q.id, answer: '-(x-' + q.params.b + ')', responseForm: null }), /还需要/);
+    const restored = await h('resume', { sessionId: s.id });
+    assert.equal(restored.revision, s.revision); assert.equal(restored.attempts.length, 0); assert.equal(restored.feedback, null); assert.equal(restored.question.id, q.id);
+  });
+  await test('Server reports use exclusive evidence counts and hide obsolete narrative after further learning', async () => {
+    const h = createHandler({ persist: false, getConfig: () => noConfig }); let s = await h('start', {});
+    const call = async (action, more = {}) => s = await h(action, { sessionId: s.id, revision: s.revision, ...more });
+    await call('answer', { questionId: s.question.id, answer: '999' }); await call('report'); assert.equal(s.report.source, 'rules'); assert.match(s.report.summary, /1 道新题独立作答/);
+    await call('next'); const q = require('./source/ai-learning.js').fromId(s.question.id);
+    await call('hint'); await call('answer', { questionId: q.id, answer: q.answer });
+    assert.equal(s.facts.counts.independent, 1); assert.equal(s.facts.counts.assisted, 1);
+    assert.equal(s.report, null); assert.equal(s.reportStale, true);
+    await call('report'); assert.equal(s.report.evidenceKey, s.facts.evidenceKey);
+  });
+  await test('Old stored acceptances are rechecked on resume without deleting their original answer', async () => {
+    const storePath = path.join(__dirname, '.local', 'fixture-legacy-' + Date.now() + '.json'), h = createHandler({ storePath, getConfig: () => noConfig });
+    const s = await h('start', {}), raw = JSON.parse(fs.readFileSync(storePath, 'utf8')), state = raw.sessions[s.id], q = state.current.question;
+    const row = { id: s.id + '-a1', mode: 'ai-unit', questionId: q.id, skillId: q.skillId, topicId: q.topicId, dimension: q.dimension, contentKey: q.prompt, outcome: 'correct', userAnswer: '-(x-' + q.params.b + ')', difficulty: q.difficulty, itemB: q.b, at: Date.now() };
+    state.attempts = [row]; state.feedback = { record: row, label: '独立完成' }; state.report = { source: 'ai', summary: '旧版分析' }; fs.writeFileSync(storePath, JSON.stringify(raw));
+    const resumed = await createHandler({ storePath, getConfig: () => noConfig })('resume', { sessionId: s.id });
+    assert.equal(resumed.attempts[0].userAnswer, row.userAnswer); assert.equal(resumed.attempts[0].outcome, 'correct');
+    assert.equal(resumed.facts.counts.needsReview, 1); assert.equal(resumed.estimate.n, 0);
+    assert.equal(resumed.report, null); assert.equal(resumed.nextPlan.action, 'retest'); assert.equal(resumed.question.answer, undefined);
+  });
+
   const configFile = path.join(__dirname, '.local', 'fixture-provider-' + Date.now() + '.env');
   const server = createServer({ getConfig: () => Provider.readConfig({}, configFile), configFile, fetchImpl: fixtureFetch, storePath: path.join(__dirname, '.local', 'fixture-http.json') });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve)); const base = 'http://127.0.0.1:' + server.address().port;

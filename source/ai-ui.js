@@ -20,8 +20,9 @@
         const result = await response.json(); if (!response.ok) throw Error(result.error || '本次操作未完成。'); return result;
       }
       function merge(owner, result) {
-        owner.records ||= []; const ids = new Set(owner.records.map(r => r.id).filter(Boolean));
-        for (const r of result.attempts) if (!ids.has(r.id)) { owner.records.push({ ...r }); ids.add(r.id); }
+        owner.records ||= []; const records = new Map(owner.records.filter(r => r.id).map(r => [r.id, r]));
+        for (const r of result.attempts) { if (records.has(r.id)) Object.assign(records.get(r.id), r); else { owner.records.push({ ...r }); records.set(r.id, owner.records.at(-1)); } }
+        owner.records = C.auditAttempts(owner.records);
         if (currentOwner() === owner && result.question) options.onQuestion?.(result.question.topicId);
       }
       function capture() {
@@ -45,7 +46,7 @@
             owner.aiUnit = { mode: 'server', sessionId: result.id, view: result, draft: {} };
           } else {
             const state = C.create({ aiEnabled: false });
-            if (previous?.mode === 'offline') { state.attempts = previous.state.attempts.slice(-150); state.exposed = previous.state.exposed.slice(-300); state.roundStart = state.attempts.length; state.limit += state.roundStart; }
+            if (previous?.mode === 'offline') { state.attempts = previous.state.attempts.slice(-150); state.hypotheses = JSON.parse(JSON.stringify(previous.state.hypotheses || [])); state.exposed = previous.state.exposed.slice(-300); state.roundStart = state.attempts.length; state.limit += state.roundStart; }
             C.next(state); owner.aiUnit = { mode: 'offline', state, view: C.view(state), draft: {} };
             notice = '当前使用本地教学。运行带后端的版本并连接 AI，可启用模型决策。';
           }
@@ -70,7 +71,7 @@
             else if (action === 'retry') C.retry(state);
             else if (action === 'next') { C.next(state); state.revision++; }
             else if (action === 'mode') { state.aiEnabled = false; notice = '本地文件使用规则指导，连接后端后可开启 AI。'; }
-            else if (action === 'report') state.report = { source: 'rules', summary: '当前按新题独立作答生成单元画像，辅助完成与重复题单独记录。', advice: '继续用不同的新题验证待确认卡点。', at: Date.now() };
+            else if (action === 'report') { const facts = C.reportFacts(state); state.report = { source: 'rules', summary: facts.summary, advice: facts.advice, evidenceKey: facts.evidenceKey, at: Date.now() }; }
             result = C.view(state);
           }
           unit.view = result; if (['next', 'retry'].includes(action)) unit.draft = {};
@@ -115,8 +116,21 @@
       }
       function report(owner = currentOwner()) {
         const v = view(owner); if (!v?.attempts?.length) return '';
-        const dims = v.dimensions, independent = C.independent(v.attempts), assisted = v.attempts.filter(r => r.assisted).length;
-        return '<section class="ai-unit-report"><div class="ai-report-heading"><div><div class="eyebrow">一元一次方程 · 单元画像</div><h2>从作答证据看见下一步</h2></div><span class="tag">实验性表现指标</span></div><div class="ai-report-grid"><div>' + radar(dims) + '<p class="ai-report-note">每一维至少有 3 道不同新题的独立作答才显示估计点。证据不足保持留空，不计为零分。</p></div><div class="ai-dimension-list">' + dims.map(d => '<div class="ai-dimension"><div><b>' + esc(d.name) + '</b><small>' + d.correct + ' / ' + d.n + ' 道新题独立通过</small></div><span>' + (d.value === null ? esc(d.status) : d.value + ' / 100') + '</span></div>').join('') + '<p class="ai-report-note">这些值是带平滑的单元答题表现，不是标准化能力分数；题目难度尚未校准。</p></div></div><div class="ai-evidence-counts"><span>' + independent.length + ' 次独立作答</span><span>' + assisted + ' 次辅助作答</span><span>' + v.attempts.filter(r => r.repeated).length + ' 次重复作答</span></div>' + (v.hypotheses.length ? '<div class="ai-roots"><h3>需要继续确认的卡点</h3>' + v.hypotheses.map(h => '<p><b>' + esc(h.label) + '</b><span>' + esc(h.status) + ' · ' + h.evidenceIds.length + ' 条作答引用</span></p>').join('') + '</div>' : '') + (v.report ? '<div class="report-analysis"><span class="tag">' + (v.report.source === 'ai' ? esc(v.report.provider || 'AI') + ' 分析' : '本地分析') + '</span><p>' + esc(v.report.summary) + '</p><p>' + esc(v.report.advice) + '</p></div>' : '') + '<div class="ai-report-actions"><button class="secondary" data-ai="report"' + (busy ? ' disabled' : '') + '>' + (busy ? '正在更新…' : '更新单元分析') + '</button><button class="text-button" data-ai="continue">继续本单元学习</button></div><details class="ai-decision-log"><summary>查看教学安排与估计依据</summary><p>能力估计 θ = ' + v.estimate.theta + '，估计不确定性（后验标准差）' + v.estimate.sd + '。使用人工预设难度的简化 IRT，未经学生数据校准；65%～75%仅为选题试验目标，不代表已测得心流。</p>' + v.decisions.slice(-6).reverse().map(p => '<div><span class="tag">' + (p.source === 'ai' ? 'AI 决策' : '本地决策') + '</span><b>' + esc(C.actionNames[p.action]) + ' · ' + esc(C.skills[p.targetSkill].name) + '</b><p>' + esc(p.reason) + '</p><small>引用 ' + p.evidenceIds.length + ' 条作答记录</small></div>').join('') + '</details></section>';
+        const facts = C.reportFacts(v), dims = v.dimensions, counts = facts.counts;
+        const summary = '<div class="ai-facts"><p>' + esc(facts.summary) + '</p><strong>' + esc(facts.advice) + '</strong></div>';
+        const categories = [['independent', '道新题独立作答'], ['assisted', '次提示后作答'], ['repeated', '次重复作答'], ['skipped', '次暂时不会'], ['notLearned', '次尚未学习'], ['needsReview', '条旧记录待复核']];
+        const evidence = '<div class="ai-evidence-counts">' + categories.filter(([key]) => counts[key] || key === 'independent').map(([key, label]) => '<span>' + counts[key] + ' ' + label + '</span>').join('') + '</div><p class="ai-report-note">以上分类互不重复。单元画像使用累计不同新题；年级概览使用各知识点最近最多六道独立新题。</p>';
+        const hypotheses = v.hypotheses.length ? '<div class="ai-roots"><h3>卡点检查记录</h3>' + v.hypotheses.map(h => {
+          const closed = ['improved', 'not_supported'].includes(h.statusCode);
+          const rows = (h.evidenceIds || []).map(id => v.attempts.find(r => r.id === id)).filter(Boolean);
+          return '<article class="ai-root ' + (closed ? 'reviewed' : '') + '"><div><b>' + esc(C.skills[h.rootId]?.name || h.label) + '</b><span class="tag">' + esc(h.status) + '</span></div><p>' + esc(h.explanation) + '</p><small>' + (h.supportIds || []).length + ' 道新题独立未通过 · ' + (h.passingEvidenceIds || []).length + ' 道同等及以上难度新题独立通过</small><details><summary>查看作答依据</summary>' + rows.map(r => {
+            let prompt = r.questionId; try { prompt = C.fromId(r.questionId).prompt; } catch (_) {}
+            const label = r.evidenceEligible === false ? '旧记录待复核' : r.repeated ? '重复作答' : r.assisted ? '提示后作答' : r.outcome === 'correct' ? '独立通过' : r.outcome === 'wrong' ? '独立未通过' : '未计入判断';
+            return '<p><b>' + esc(prompt) + '</b><span>你的作答：' + esc(r.userAnswer) + ' · ' + label + '</span></p>';
+          }).join('') + '<p class="ai-report-note">阶段变化：' + (h.history || []).map(e => esc(e.status)).join(' → ') + '</p></details></article>';
+        }).join('') + '</div>' : '';
+        const analysis = v.report ? '<div class="report-analysis"><span class="tag">' + (v.report.source === 'ai' ? esc(v.report.provider || 'AI') + ' 补充建议' : '本地分析') + '</span><p>' + esc(v.report.summary) + '</p><p>' + esc(v.report.advice) + '</p></div>' : v.reportStale ? '<p class="ai-report-note">作答记录已更新，旧的补充分析已收起。可以按最新证据更新单元建议。</p>' : '';
+        return '<section class="ai-unit-report"><div class="ai-report-heading"><div><div class="eyebrow">一元一次方程 · 单元学习记录</div><h2>本轮进展与下一步</h2></div><span class="tag">实验性表现指标</span></div>' + summary + evidence + hypotheses + '<details class="ai-profile-details" open><summary>查看五维单元表现</summary><div class="ai-report-grid"><div>' + radar(dims) + '<p class="ai-report-note">每一维至少有 3 道不同新题的独立作答才显示估计点。证据不足保持留空。</p></div><div class="ai-dimension-list">' + dims.map(d => '<div class="ai-dimension"><div><b>' + esc(d.name) + '</b><small>' + d.correct + ' / ' + d.n + ' 道新题独立通过</small></div><span>' + (d.value === null ? esc(d.status) : d.value + ' / 100') + '</span></div>').join('') + '<p class="ai-report-note">单元答题表现经过平滑处理；题目难度尚未校准。</p></div></div></details>' + analysis + '<div class="ai-report-actions"><button class="secondary" data-ai="report"' + (busy ? ' disabled' : '') + '>' + (busy ? '正在更新…' : '更新单元建议') + '</button><button class="text-button" data-ai="continue">继续本单元学习</button></div><details class="ai-decision-log"><summary>查看教学安排与估计依据</summary><p>实验性能力估计 θ = ' + v.estimate.theta + '，估计不确定性（后验标准差）' + v.estimate.sd + '。使用人工预设难度的简化 IRT，未经学生数据校准；65%～75%为练习选题试验目标。</p>' + v.decisions.slice(-6).reverse().map(p => '<div><span class="tag">' + (p.source === 'ai' ? 'AI 决策' : '本地决策') + '</span><b>' + esc(C.actionNames[p.action]) + ' · ' + esc(C.skills[p.targetSkill].name) + '</b><p>' + esc(p.reason) + '</p><small>引用 ' + p.evidenceIds.length + ' 条作答记录</small></div>').join('') + '</details></section>';
       }
       function bind() {
         document.querySelectorAll('[data-ai-choice]').forEach(el => el.onclick = () => { if (busy) return; capture(); currentOwner().aiUnit.draft.answer = el.dataset.aiChoice; redraw(currentOwner()); });

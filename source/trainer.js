@@ -54,7 +54,12 @@
     const historyFor = (records, topicId) => records.filter(r => r.topicId === topicId);
     function evidence(records, topicId) {
       const all = historyFor(records, topicId), independent = new Map();
-      for (const r of all) if (['correct', 'wrong'].includes(r.outcome) && !r.assisted && !r.repeated) independent.set(r.contentKey || (items[r.questionId] ? key(items[r.questionId]) : r.questionId), r);
+      const seen = new Set();
+      for (const r of all) {
+        const contentKey = r.contentKey || (items[r.questionId] ? key(items[r.questionId]) : r.questionId), repeated = seen.has(contentKey);
+        seen.add(contentKey);
+        if (['correct', 'wrong'].includes(r.outcome) && !r.assisted && !r.repeated && !repeated && r.evidenceEligible !== false && r.goalComplete !== false) independent.set(contentKey, r);
+      }
       const recent = [...independent.values()].sort((a, b) => a.at - b.at).slice(-6);
       const correct = recent.filter(r => r.outcome === 'correct').length, n = recent.length;
       const stable = n >= 3 && correct / n >= .8 && recent.at(-1)?.outcome === 'correct' && recent.some(r => r.outcome === 'correct' && r.difficulty !== 'basic');
