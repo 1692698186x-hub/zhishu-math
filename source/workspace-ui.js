@@ -33,7 +33,8 @@
     p.records = AILearning.auditAttempts(p.records || []);
     if (p.aiUnit?.mode === 'offline' && p.aiUnit.state) p.aiUnit.view = AILearning.view(p.aiUnit.state);
     else if (p.aiUnit?.view) {
-      const v = p.aiUnit.view; v.attempts = AILearning.auditAttempts(v.attempts || []);
+      const v = p.aiUnit.view; AILearning.refreshEvidence(v);
+      if (!v.revealed && v.feedback?.record.evidenceEligible === false && v.question) { delete v.question.answer; delete v.question.explanation; }
       v.facts = AILearning.reportFacts(v); v.dimensions = AILearning.profile(v.attempts); v.estimate = AILearning.estimate(v.attempts);
       if (v.report && v.report.evidenceKey !== v.facts.evidenceKey) { v.report = null; v.reportStale = true; }
     }

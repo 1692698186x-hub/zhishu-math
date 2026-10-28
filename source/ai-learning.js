@@ -291,18 +291,22 @@
   }
   function reveal(state) { if (!state.current) throw Error('没有当前题目。'); state.current.revealed = true; state.revision++; state.events.push({ type: 'reveal', questionId: state.current.question.id, at: Date.now() }); }
   function retry(state) { if (!state.feedback || !state.current) throw Error('当前不能重试。'); state.current.retry = true; state.feedback = null; state.draft = {}; state.revision++; }
-  function view(state) {
-    if (state.current?.question?.id?.startsWith('ai5_')) {
-      const previous = state.current.question;
-      state.current.question = { ...fromId(previous.id), origin: previous.origin };
-    }
-    state.attempts = auditAttempts(state.attempts);
-    if (state.feedback) state.feedback.record = state.attempts.find(r => r.id === state.feedback.record.id) || state.feedback.record;
+  function refreshEvidence(state) {
+    state.attempts = auditAttempts(state.attempts || []);
+    if (state.feedback?.record) state.feedback.record = state.attempts.find(r => r.id === state.feedback.record.id) || state.feedback.record;
     if (state.feedback?.record.evidenceEligible === false) {
       state.feedback.label = '这条旧记录需要用新题复核'; state.feedback.diagnosis = null;
       const row = state.feedback.record;
       state.nextPlan = { action: 'retest', targetSkill: row.skillId, level: Math.max(0, itemLevel(row)), reason: '旧版只检查了式子等价，本次换新题检查是否完成了去括号与化简。', evidenceIds: [row.id], source: 'rules' };
     }
+    return state;
+  }
+  function view(state) {
+    if (state.current?.question?.id?.startsWith('ai5_')) {
+      const previous = state.current.question;
+      state.current.question = { ...fromId(previous.id), origin: previous.origin };
+    }
+    refreshEvidence(state);
     const facts = reportFacts(state), report = state.report?.evidenceKey === facts.evidenceKey ? state.report : null;
     const c = state.current, q = c?.question;
     const publicQ = q ? { id: q.id, skillId: q.skillId, topicId: q.topicId, level: q.level, difficulty: q.difficulty, type: q.type, prompt: q.prompt, choices: q.choices, origin: q.origin || 'validated-template' } : null;
@@ -310,5 +314,5 @@
     if (showAnswer && publicQ) { publicQ.answer = q.answer; publicQ.explanation = q.explanation; }
     return { id: state.id, revision: state.revision, phase: state.phase, finished: state.finished, finishReason: state.finishReason, aiEnabled: state.aiEnabled, question: publicQ, hintCount: c?.hintCount || 0, hint: c?.aiHint || (c?.hintCount ? q.hints[c.hintCount - 1] : null), hintSource: c?.hintSource || 'rules', report, reportStale: !!state.report && !report, facts, revealed: !!c?.revealed, retrying: !!c?.retry, feedback: state.feedback, nextPlan: state.nextPlan, attempts: state.attempts, decisions: state.decisions, hypotheses: state.hypotheses, dimensions: profile(state.attempts), estimate: estimate(state.attempts), targetBand: [.65, .75], calibration: '实验参数，未经学生数据校准' };
   }
-  return { dimensions, skills, roots, targetSkills, actionNames, levelNames, configureGraph, blueprint, fromId, validateQuestion, independent, auditAttempts, evidenceSummary, refreshHypotheses, reportFacts, hypothesisNames, estimate, profile, create, pick, next, candidates, localPlan, applyPlan, record, hint, reveal, retry, view, sigmoid };
+  return { dimensions, skills, roots, targetSkills, actionNames, levelNames, configureGraph, blueprint, fromId, validateQuestion, independent, auditAttempts, evidenceSummary, refreshEvidence, refreshHypotheses, reportFacts, hypothesisNames, estimate, profile, create, pick, next, candidates, localPlan, applyPlan, record, hint, reveal, retry, view, sigmoid };
 });

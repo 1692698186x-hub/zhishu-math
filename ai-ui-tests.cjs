@@ -67,4 +67,14 @@ test('Starting another offline round preserves suspected gaps and their status h
   assert.deepEqual(a.unit().state.hypotheses[0].history.map(h => h.code), history);
   assert.equal(a.profile().records.length, count);
 });
+
+test('A cached backend view is rechecked on page load before showing old success or its reference answer', () => {
+  const a = boot(); a.start(); a.answer(); const db = a.db(), p = db.profiles[0], v = p.aiUnit.view, q = C.fromId(v.question.id), original = '-(x-' + q.params.b + ')';
+  p.aiUnit.mode = 'server'; delete p.aiUnit.state; p.records[0].userAnswer = original;
+  v.attempts[0].userAnswer = original; v.feedback.record.userAnswer = original; v.nextPlan.action = 'challenge';
+  a.store.set(KEY, JSON.stringify(db)); const b = boot(a.store);
+  assert.match(b.find('.feedback-box').textContent, /旧记录/); assert.equal(b.window.document.querySelector('.ai-solution'), null);
+  assert.match(b.find('[data-ai="next"]').textContent, /独立验证/); assert.equal(b.unit().view.facts.counts.independent, 0);
+});
+
 console.log(JSON.stringify({ aiUiPassed: passed, liveModelCalls: 0, fixtureOnly: true }));

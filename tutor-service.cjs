@@ -77,6 +77,7 @@ function createHandler(options = {}) {
     }
     const id = String(input.sessionId || ''), state = Object.hasOwn(sessions, id) ? sessions[id] : null;
     if (!state) throw error(404, '这轮学习未找到，可返回并开始新一轮。');
+    Core.refreshEvidence(state);
     if (action === 'resume') return Core.view(state);
     if (busy.has(id)) throw error(409, '正在安排下一步，请稍候。');
     if (input.revision !== state.revision) throw error(409, '记录已经更新，请恢复当前学习再继续。');

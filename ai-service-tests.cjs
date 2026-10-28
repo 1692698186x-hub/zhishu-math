@@ -74,6 +74,17 @@ async function main() {
     assert.equal(resumed.report, null); assert.equal(resumed.nextPlan.action, 'retest'); assert.equal(resumed.question.answer, undefined);
   });
 
+
+  await test('An old session that directly asks for next is rechecked before its outdated promotion can run', async () => {
+    const storePath = path.join(__dirname, '.local', 'fixture-direct-next-' + Date.now() + '.json'), h = createHandler({ storePath, getConfig: () => noConfig });
+    const s = await h('start', {}), raw = JSON.parse(fs.readFileSync(storePath, 'utf8')), state = raw.sessions[s.id], q = state.current.question;
+    const row = { id: s.id + '-a1', mode: 'ai-unit', questionId: q.id, skillId: q.skillId, topicId: q.topicId, dimension: q.dimension, contentKey: q.prompt, outcome: 'correct', userAnswer: '-(x-' + q.params.b + ')', difficulty: q.difficulty, itemB: q.b, at: Date.now() };
+    state.attempts = [row]; state.feedback = { record: row, label: '独立完成' };
+    state.nextPlan = { action: 'challenge', targetSkill: 'distribute', level: 2, source: 'rules', reason: '旧版进阶', evidenceIds: [row.id] }; fs.writeFileSync(storePath, JSON.stringify(raw));
+    const next = await createHandler({ storePath, getConfig: () => noConfig })('next', { sessionId: s.id, revision: s.revision });
+    assert.equal(next.question.level, 1); assert.equal(next.phase, 'retest'); assert.equal(next.facts.counts.independent, 0); assert.equal(next.facts.counts.needsReview, 1);
+  });
+
   const configFile = path.join(__dirname, '.local', 'fixture-provider-' + Date.now() + '.env');
   const server = createServer({ getConfig: () => Provider.readConfig({}, configFile), configFile, fetchImpl: fixtureFetch, storePath: path.join(__dirname, '.local', 'fixture-http.json') });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve)); const base = 'http://127.0.0.1:' + server.address().port;

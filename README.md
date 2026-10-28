@@ -6,7 +6,7 @@
 - 旧版误收的未化简答案保留原文并标注“待新题复核”，不再进入画像或年级进度。
 - 错因会随直接测量该技能的新题独立作答更新；至少两道同等及以上难度新题通过后，记录本轮复测结果。后续再次独立出错可以重新打开卡点，历史证据保留。
 - 报告先给出实际进展与下一步，再展示检查依据和五维表现。作答变化后，过时的补充分析自动收起。单元累计表现与各知识点最近最多六道独立新题的年级概览明确标注范围。
-- 122 项自动检查通过（原有104项、新增18项），数学参数校验覆盖1440组。当前仍为实验原型。
+- 124 项自动检查通过（原有104项、新增20项），数学参数校验覆盖1440组。当前仍为实验原型。
 
 ## 新增：一元一次方程 AI 学习实验
 
@@ -30,7 +30,7 @@ AI 版学习会话保存在本机 `.local/learning-sessions.json`，浏览器保
 
 ### 验证
 
-运行 `pnpm install --frozen-lockfile`、`pnpm test`。当前122项检查涵盖记录恢复、数学解析、1440组题目参数、诊断分支、错因修正、辅助/重复证据、旧记录复核、报告更新、生成参数拒绝、模型失败回退、配置隔离与界面交互。
+运行 `pnpm install --frozen-lockfile`、`pnpm test`。当前124项检查涵盖记录恢复、数学解析、1440组题目参数、诊断分支、错因修正、辅助/重复证据、旧记录复核、报告更新、生成参数拒绝、模型失败回退、配置隔离与界面交互。
 
 `ai-live-check.cjs` 单独执行少量真实模型请求；不属于默认测试。2026-10-27 已以用户本地配置通过 DeepSeek 的诊断与教学动作、定向变式参数、分层提示和证据报告联调。真实学生试用、教师审核和教学效果研究尚未进行。
 
@@ -42,7 +42,7 @@ AI 版学习会话保存在本机 `.local/learning-sessions.json`，浏览器保
 - `source/ai-ui.js`、`source/ai-learning.css`：嵌入现有学习页与报告页的单元界面。
 - `provider-config.cjs`、`ai-server.cjs`、`setup-page.cjs`：DeepSeek/MaaS 接入及本机设置入口。
 
-当前阶段在本机运行。CodeArts使用、通过 Skills 创建云资源及华为云部署仍属于后续独立的参赛任务。
+当前阶段在本机运行。已使用 CodeArts 实际审查本批代码并修复发现的问题，记录见 docs/development/2026-10-28-v0.5.1-codearts.md。通过 Skills 创建云资源及华为云部署仍待完成。
 
 ---
 
@@ -119,4 +119,4 @@ pnpm run build:pages
 
 ## 来源与许可
 
-原图谱、题目和判题代码来自 [xiaoyang111222/cn-math-taxonomy](https://github.com/xiaoyang111222/cn-math-taxonomy)。保留来源与许可，修改后原型按 CC BY-NC 4.0 发布。商业用途需另行授权，见 LICENSE、source/LICENSE.upstream.txt 和 UPSTREAM.json。
+原图谱、题目和判题代码来自 [xiaoyang111242/cn-math-taxonomy](https://github.com/xiaoyang111242/cn-math-taxonomy)。保留来源与许可，修改后原型按 CC BY-NC 4.0 发布。商业用途需另行授权，见 LICENSE、source/LICENSE.upstream.txt 和 UPSTREAM.json。
