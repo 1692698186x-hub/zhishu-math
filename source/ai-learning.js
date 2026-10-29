@@ -26,10 +26,11 @@
   const sigmoid = x => 1 / (1 + Math.exp(-x));
   const clamp = (x, min, max) => Math.max(min, Math.min(max, x));
   const fmt = n => n < 0 ? ' - ' + -n : ' + ' + n;
-  let curriculum = null, curriculumJudge = null;
-  function configureCurriculum(data, trainer, judge) {
+  let curriculum = null, curriculumJudge = null, variants = null;
+  function configureCurriculum(data, trainer, judge, variationEngine) {
     curriculum = { topics: data.topics, bank: trainer.bank, items: trainer.items };
     curriculumJudge = judge;
+    variants = variationEngine || variants;
     for (const t of data.topics) {
       const prerequisites = data.dependencies.filter(e => e.topicId === t.id && e.strength === 'hard').map(e => e.prerequisiteId).filter(id => data.topics.some(p => p.id === id && p.grade <= t.grade) && trainer.bank[id]?.length);
       skills[t.id] = { name: t.name, topicId: t.id, grade: t.grade, dimension: null, prerequisites, curriculum: true };
@@ -39,12 +40,18 @@
   function topicsForGrade(grade) { return (curriculum?.topics || []).filter(t => t.grade === Number(grade)); }
   function rememberExposure(state, ids = []) {
     for (const id of ids.slice(-150)) {
-      try { const q = fromId(String(id).startsWith('aic_') || String(id).startsWith('ai5_') ? id : 'aic_' + id); if ((q.grade || 7) <= (state.grade || 7) && !state.exposed.includes(q.prompt)) state.exposed.push(q.prompt); } catch (_) {}
+      try { const q = fromId(/^(aic_|aiv_|ai5_)/.test(String(id)) ? id : 'aic_' + id); if ((q.grade || 7) <= (state.grade || 7) && !state.exposed.includes(q.prompt)) state.exposed.push(q.prompt); } catch (_) {}
     }
   }
   function curriculumItem(raw) {
     const t = skills[raw.topicId], topic = curriculum.topics.find(t => t.id === raw.topicId), level = ['basic', 'standard', 'advanced'].indexOf(raw.difficulty);
     return { ...raw, id: 'aic_' + raw.id, originalId: raw.id, curriculum: true, skillId: raw.topicId, grade: t.grade, dimension: null, level, b: [-1.3, -.35, .6][level], hints: ['先说说这道题要找什么，哪些条件能用上？', topic.description + ' 请先写出与你这道题有关的一步。', '回看你的这一步：数量、单位或运算关系是否符合题意？先检查这一处，再继续。'], calibration: 'experimental-manual', origin: 'curated-bank' };
+  }
+  function variation(skill, level, index) { const q = curriculumItem(variants.item(skill, level, index)); q.id = 'aiv_' + skill + '_' + level + '_' + index; q.origin = 'validated-variant'; return q; }
+  function generationParameters(skill, level, params) {
+    if (!skills[skill]?.curriculum) return blueprint(skill, level, params).params;
+    if (!variants?.supported.includes(skill) || !params || Object.keys(params).some(key => key !== 'variant') || !Number.isInteger(params.variant)) throw Error('unsupported parameters');
+    variation(skill, level, params.variant); return { variant: params.variant };
   }
   function configureGraph(dependencies) {
     const graph = new Map(), evidence = [];
@@ -121,9 +128,10 @@
       return q.type === 'choice' && q.choices.length === 3 && q.choices.some(c => c.key === q.answer) && new Set(q.choices.map(c => c.text)).size === 3;
     } catch (_) { return false; }
   }
-  function fromId(id) { if (String(id).startsWith('aic_')) { const raw = curriculum?.items[String(id).slice(4)]; if (!raw || !curriculum.bank[raw.topicId]?.some(q => q.id === raw.id)) throw Error('unknown question'); return curriculumItem(raw); } const p = String(id).split('_'); if (p.length !== 7 || p[0] !== 'ai5') throw Error('unknown question'); return blueprint(p[1], Number(p[2]), { a: Number(p[3]), b: Number(p[4]), x: Number(p[5]), context: p[6] }); }
+  function fromId(id) { if (String(id).startsWith('aiv_')) { const m = /^aiv_(cnm_p?\d+)_([012])_(\d+)$/.exec(String(id)); if (!m) throw Error('unknown question'); return variation(m[1], Number(m[2]), Number(m[3])); } if (String(id).startsWith('aic_')) { const raw = curriculum?.items[String(id).slice(4)]; if (!raw || !skills[raw.topicId]?.curriculum || !['numeric', 'choice'].includes(raw.type)) throw Error('unknown question'); return curriculumItem(raw); } const p = String(id).split('_'); if (p.length !== 7 || p[0] !== 'ai5') throw Error('unknown question'); return blueprint(p[1], Number(p[2]), { a: Number(p[3]), b: Number(p[4]), x: Number(p[5]), context: p[6] }); }
   function auditAttempts(attempts) {
     return attempts.map(r => {
+      if (variants?.deprecated.includes(String(r.questionId || '').replace(/^aic_/, ''))) return { ...r, evidenceEligible: false, evidenceReview: '旧题侧重点与本次知识点目标不一致，保留原作答，需用新题复核', assessmentVersion: 2 };
       if (r.mode !== 'ai-unit' || r.skillId !== 'distribute' || r.outcome !== 'correct') return r;
       try {
         const q = fromId(r.questionId), verdict = MathCheck.judge(q, r.userAnswer);
@@ -234,13 +242,15 @@
     const used = new Set(state.exposed), start = state.counters[skill] || 0;
     let q;
     if (skills[skill]?.curriculum) {
+      if (generated) { try { q = variation(skill, level, generationParameters(skill, level, generated).variant); if (used.has(q.prompt)) q = null; else q.origin = 'ai-parameters'; } catch (_) {} }
       const pool = (curriculum.bank[skill] || []).filter(raw => !used.has(raw.prompt));
       const eligible = stage === 'retest' && skill === state.goal?.skillId ? pool.filter(raw => ['basic', 'standard', 'advanced'].indexOf(raw.difficulty) >= state.goal.level) : pool;
       eligible.sort((a, b) => Math.abs(['basic', 'standard', 'advanced'].indexOf(a.difficulty) - level) - Math.abs(['basic', 'standard', 'advanced'].indexOf(b.difficulty) - level));
-      if (eligible.length) q = curriculumItem(eligible[0]);
-      else { state.finished = true; state.finishReason = '这个目标可用的独立新题不足，先保留记录；尚不能据此宣布本次目标已验证。'; return null; }
+      if (!q && eligible.length) q = curriculumItem(eligible[0]);
+      if (!q && variants?.supported.includes(skill)) for (let n = 0; n < 120 && !q; n++) { const candidate = variation(skill, level, n); if (!used.has(candidate.prompt)) q = candidate; }
+      if (!q) { state.finished = true; state.finishReason = '这个目标可用的独立新题不足，先保留记录；尚不能据此宣布本次目标已验证。'; return null; }
     }
-    if (generated) { try { q = blueprint(skill, level, generated); if (used.has(q.prompt)) q = null; else q.origin = 'ai-parameters'; } catch (_) {} }
+    if (generated && !skills[skill]?.curriculum) { try { q = blueprint(skill, level, generated); if (used.has(q.prompt)) q = null; else q.origin = 'ai-parameters'; } catch (_) {} }
     for (let n = start; !q && n < start + 120; n++) {
       const params = { a: 2 + n % 11, b: 2 + Math.floor(n / 3) % 19, x: 2 + n % 19, context: ['books', 'tickets', 'stationery'][n % 3] };
       const candidate = blueprint(skill, level, params); state.counters[skill] = n + 1;
@@ -316,7 +326,7 @@
     const ids = Array.isArray(plan.evidenceIds) ? plan.evidenceIds : [];
     if (!ids.length || ids.some(id => !state.attempts.some(r => r.id === id))) throw Error('unknown evidence');
     const safe = { ...choice, reason: plan.reason.slice(0, 220), source: plan.source === 'ai' ? 'ai' : 'rules', provider: plan.provider || null, evidenceIds: ids, rootId: Object.hasOwn(roots, plan.rootId) ? plan.rootId : null, at: Date.now(), estimate: estimate(state.attempts, choice.targetSkill) };
-    if (plan.parameters) { const generated = blueprint(choice.targetSkill, choice.level, plan.parameters); safe.parameters = generated.params; }
+    if (plan.parameters) { safe.parameters = generationParameters(choice.targetSkill, choice.level, plan.parameters); }
     state.nextPlan = safe; state.decisions.push(safe);
     if (safe.rootId && state.attempts.at(-1).outcome === 'wrong') {
       let hypothesis = state.hypotheses.find(h => h.rootId === safe.rootId);
@@ -332,7 +342,7 @@
     if (!state.current || state.feedback || state.finished) throw Error('没有可提交的题目。');
     const c = state.current, q = c.question;
     if (outcomeOverride && !['skip', 'not_learned'].includes(outcomeOverride)) throw Error('invalid outcome');
-    const rawVerdict = outcomeOverride ? null : q.curriculum ? curriculumJudge.judgeQuestion(curriculum.items[q.originalId], answer) : MathCheck.judge(q, answer);
+    const rawVerdict = outcomeOverride ? null : q.curriculum ? curriculumJudge.judgeQuestion(q, answer) : MathCheck.judge(q, answer);
     const judged = rawVerdict?.verdict === 'manual' ? { verdict: 'invalid' } : rawVerdict;
     const verdict = outcomeOverride || judged.verdict;
     if (verdict === 'incomplete') throw Error(judged.message);
@@ -355,12 +365,12 @@
     if (state.feedback?.record.evidenceEligible === false) {
       state.feedback.label = '这条旧记录需要用新题复核'; state.feedback.diagnosis = null;
       const row = state.feedback.record;
-      state.nextPlan = { action: 'retest', targetSkill: row.skillId, level: Math.max(0, itemLevel(row)), reason: '旧版只检查了式子等价，本次换新题检查是否完成了去括号与化简。', evidenceIds: [row.id], source: 'rules' };
+      state.nextPlan = { action: 'retest', targetSkill: row.skillId, level: Math.max(0, itemLevel(row)), reason: row.evidenceReview || '旧版只检查了式子等价，本次换新题检查是否完成了去括号与化简。', evidenceIds: [row.id], source: 'rules' };
     }
     return state;
   }
   function view(state) {
-    if (state.current?.question?.id?.startsWith('ai5_') || state.current?.question?.id?.startsWith('aic_')) {
+    if (state.current?.question?.id?.startsWith('ai5_') || state.current?.question?.id?.startsWith('aic_') || state.current?.question?.id?.startsWith('aiv_')) {
       const previous = state.current.question;
       state.current.question = { ...fromId(previous.id), origin: previous.origin };
     }
@@ -372,5 +382,5 @@
     if (showAnswer && publicQ) { publicQ.answer = q.answer; publicQ.explanation = q.explanation; }
     return { id: state.id, revision: state.revision, grade: state.grade || 7, phase: state.phase, finished: state.finished, finishReason: state.finishReason, aiEnabled: state.aiEnabled, goal: state.goal, roundStart: state.roundStart, task: facts.task, question: publicQ, hintCount: c?.hintCount || 0, hint: c?.aiHint || (c?.hintCount ? q.hints[c.hintCount - 1] : null), hintSource: c?.hintSource || 'rules', report, reportStale: !!state.report && !report, facts, revealed: !!c?.revealed, retrying: !!c?.retry, feedback: state.feedback, nextPlan: state.nextPlan, attempts: state.attempts, decisions: state.decisions, hypotheses: state.hypotheses, dimensions: profile(state.attempts), estimate: estimate(state.attempts), targetBand: [.65, .75], calibration: '实验参数，未经学生数据校准' };
   }
-  return { dimensions, skills, roots, targetSkills, actionNames, levelNames, configureGraph, configureCurriculum, topicsForGrade, rememberExposure, blueprint, fromId, validateQuestion, independent, auditAttempts, evidenceSummary, refreshEvidence, refreshHypotheses, reportFacts, hypothesisNames, taskProgress, estimate, profile, create, pick, next, candidates, localPlan, applyPlan, record, hint, reveal, retry, view, sigmoid };
+  return { dimensions, skills, roots, targetSkills, actionNames, levelNames, configureGraph, configureCurriculum, topicsForGrade, rememberExposure, generationParameters, blueprint, fromId, validateQuestion, independent, auditAttempts, evidenceSummary, refreshEvidence, refreshHypotheses, reportFacts, hypothesisNames, taskProgress, estimate, profile, create, pick, next, candidates, localPlan, applyPlan, record, hint, reveal, retry, view, sigmoid };
 });

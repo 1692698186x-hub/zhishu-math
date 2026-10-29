@@ -1,7 +1,7 @@
 (function (root, factory) {
-  if (typeof module === 'object' && module.exports) module.exports = factory();
-  else root.TopicTrainer = factory();
-})(typeof globalThis !== 'undefined' ? globalThis : this, function () {
+  if (typeof module === 'object' && module.exports) module.exports = factory(require('./curriculum-variants.js'));
+  else root.TopicTrainer = factory(root.CurriculumVariants);
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (Variants) {
   'use strict';
   const levels = ['basic', 'standard', 'advanced'];
   const levelNames = ['基础巩固', '标准练习', '进阶挑战'];
@@ -46,7 +46,8 @@
     const topics = Object.fromEntries(data.topics.map(t => [t.id, t]));
     const bank = {}, items = Object.fromEntries([...data.questions, ...(authored?.questions || [])].map(q => [q.id, q]));
     for (const t of data.topics) {
-      const pool = [...data.questions.filter(q => q.topicId === t.id && ['numeric', 'choice'].includes(q.type)), ...(authored?.questions || []).filter(q => q.topicId === t.id && q.stage === 'practice'), ...supplemental(t)];
+      const additions = Variants?.seed(t.id) || [], replaced = new Set(additions.map(q => q.replaces).filter(Boolean));
+      const pool = [...data.questions.filter(q => q.topicId === t.id && ['numeric', 'choice'].includes(q.type) && !replaced.has(q.id)), ...(authored?.questions || []).filter(q => q.topicId === t.id && q.stage === 'practice'), ...supplemental(t), ...additions];
       const unique = new Map();
       pool.forEach(q => { if (!unique.has(key(q))) unique.set(key(q), q); });
       bank[t.id] = [...unique.values()]; bank[t.id].forEach(q => { items[q.id] = q; });

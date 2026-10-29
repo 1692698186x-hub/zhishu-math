@@ -7,7 +7,7 @@ const data = { topics: JSON.parse(source('topics.json')), dependencies: JSON.par
 const slots = {
   STYLE: source('workspace.css') + '\n' + source('navigation.css') + '\n' + source('knowledge-graph.css') + '\n' + source('ai-learning.css'),
   DATA: 'const APP_VERSION = ' + JSON.stringify(version) + ';\nconst MATH_DATA = ' + JSON.stringify(data).replace(/</g, '\\u003c') + ';',
-  JUDGE: source('judge.js'), ABILITY: source('ability.js'), APP: source('workspace-ui.js'),
+  JUDGE: source('judge.js'), ABILITY: source('ability.js'), APP: source('workspace-ui.js'), CURRICULUM_VARIANTS: source('curriculum-variants.js'),
   KNOWLEDGE_GRAPH: source('knowledge-graph.js'),
   LINEAR_MATH: source('linear-math.js'), AI_LEARNING: source('ai-learning.js'), AI_UI: source('ai-ui.js'),
   LEARNING_UNIT: source('learning-unit.js'), LEARNING: source('learning.js'), LEARNING_UI: source('trainer.js')

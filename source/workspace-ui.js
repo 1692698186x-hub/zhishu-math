@@ -3,7 +3,7 @@
   const KEY = 'zhishu.ability.v1';
   const T = TopicTrainer.createEngine(MATH_DATA, LearningUnit);
   const E = Ability.createEngine(MATH_DATA);
-  AILearning.configureCurriculum(MATH_DATA, T, DiagEngine);
+  AILearning.configureCurriculum(MATH_DATA, T, DiagEngine, CurriculumVariants);
   AILearning.configureGraph(MATH_DATA.dependencies);
   const $ = s => document.querySelector(s);
   const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
