@@ -174,9 +174,9 @@
     captureDraft(); const q = T.items[r.current.questionId], answer = String(r.draft.answer || '').trim();
     if (!outcome) {
       if (!answer) { note = '先填写答案，或选择“暂时不会”。'; render(); return; }
-      const verdict = DiagEngine.judgeQuestion(q, answer).verdict;
-      if (verdict === 'manual') { note = '请只填写数值，也可以输入分数，例如 1/2。'; render(); return; }
-      outcome = verdict === 'correct' ? 'correct' : 'wrong';
+      const judged = DiagEngine.judgeQuestion(q, answer);
+      if (judged.verdict === 'manual' || judged.verdict === 'incomplete') { note = judged.message || '请只填写数值，也可以输入分数，例如 1/2。'; render(); return; }
+      outcome = judged.verdict === 'correct' ? 'correct' : 'wrong';
     }
     T.record(r, profile().records, outcome, { userAnswer: answer, steps: String(r.draft.steps || '').slice(0, 1000) }); note = ''; render();
   }

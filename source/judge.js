@@ -17,9 +17,9 @@
  *   第二题对 -> 不稳（shaky，不向先修回溯）；第二题也错 -> 薄弱（weak，向先修回溯，hard 先于 soft）。
  */
 (function (root, factory) {
-  if (typeof module !== 'undefined' && module.exports) module.exports = factory();
-  else root.DiagEngine = factory();
-})(typeof self !== 'undefined' ? self : this, function () {
+  if (typeof module !== 'undefined' && module.exports) module.exports = factory(require('./answer-units.js'));
+  else root.DiagEngine = factory(root.AnswerUnits);
+})(typeof self !== 'undefined' ? self : this, function (Units) {
   'use strict';
 
   /* ------------------------------------------------------------------ 图 */
@@ -643,6 +643,7 @@
   function canonUnit(u) {
     if (!u) return { name: '', known: true };
     if (UNIT_ALIASES[u]) return { name: UNIT_ALIASES[u], known: true };
+    if (Units?.aliases[u]) return { name: Units.aliases[u], known: true };
     if (/^[一-龥]{1,4}$/.test(u)) return { name: u, known: false };
     return null; // 不像单位，说明这不是“数+单位”
   }
@@ -706,7 +707,7 @@
       const items = splitTop(tm[1], ',');
       const nums = items.map(parseNumeric);
       if (items.length > 1 && nums.every(Boolean)) {
-        return { raw: p, variable: variable, kind: 'tuple', key: 't:' + nums.map(function (x) { return x.key; }).join(','), unit: { name: '', known: true } };
+        return { raw: p, variable: variable, kind: 'tuple', key: 't:' + nums.map(function (x) { return x.key; }).join(','), components: nums, unit: { name: '', known: true } };
       }
     }
     return { raw: p, variable: variable, kind: 'text', key: body, unit: { name: '', known: true } };
@@ -721,6 +722,11 @@
   // 'eq' | 'ne' | 'unsure'
   function partCompare(a, b) {
     if (a.kind !== b.kind || a.key !== b.key) return 'ne';
+    if (a.kind === 'tuple' && a.components && b.components) {
+      let result = 'eq';
+      for (let i = 0; i < a.components.length; i++) { const compared = partCompare(a.components[i], b.components[i]); if (compared === 'ne') return 'ne'; if (compared === 'unsure') result = 'unsure'; }
+      return result;
+    }
     const ua = a.unit, ub = b.unit;
     if (!ua.name || !ub.name || ua.name === ub.name) return 'eq';
     return ua.known && ub.known ? 'ne' : 'unsure';
@@ -860,7 +866,7 @@
   function judgeQuestion(q, user) {
     switch (q.type) {
       case 'choice': return judgeChoice(user, q);
-      case 'numeric': return judgeNumeric(user, q);
+      case 'numeric': return Units?.check(q, user, parseAnswer, judgeNumeric) || judgeNumeric(user, q);
       case 'short': return judgeShort(user, q);
       case 'self': return { verdict: 'manual', reason: 'self' };
       default: return judgeAnswer(user, q.answer); // legacy：来自 diagnostic_question

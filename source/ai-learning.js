@@ -132,6 +132,15 @@
   function auditAttempts(attempts) {
     return attempts.map(r => {
       if (variants?.deprecated.includes(String(r.questionId || '').replace(/^aic_/, ''))) return { ...r, evidenceEligible: false, evidenceReview: '旧题侧重点与本次知识点目标不一致，保留原作答，需用新题复核', assessmentVersion: 2 };
+      if (curriculum && ['correct', 'wrong'].includes(r.outcome) && r.questionId) {
+        try {
+          const q = fromId(/^(aic_|aiv_|ai5_)/.test(r.questionId) ? r.questionId : 'aic_' + r.questionId);
+          if (q.curriculum && q.type === 'numeric') {
+            const judged = curriculumJudge.judgeQuestion(q, r.userAnswer);
+            if (judged.verdict !== r.outcome && (judged.reason?.startsWith('unit-') || judged.verdict === 'correct' && judged.reason === 'unit-equivalent')) return { ...r, evidenceEligible: false, goalComplete: false, evidenceReview: '旧记录的单位或换算格式需用新题复核，保留原作答但不继续计入表现', evidenceReviewCode: 'unit-goal', assessmentVersion: 3 };
+          }
+        } catch (_) {}
+      }
       if (r.mode !== 'ai-unit' || r.skillId !== 'distribute' || r.outcome !== 'correct') return r;
       try {
         const q = fromId(r.questionId), verdict = MathCheck.judge(q, r.userAnswer);
@@ -345,10 +354,10 @@
     const c = state.current, q = c.question;
     if (outcomeOverride && !['skip', 'not_learned'].includes(outcomeOverride)) throw Error('invalid outcome');
     const rawVerdict = outcomeOverride ? null : q.curriculum ? curriculumJudge.judgeQuestion(q, answer) : MathCheck.judge(q, answer);
-    const judged = rawVerdict?.verdict === 'manual' ? { verdict: 'invalid' } : rawVerdict;
+    const judged = rawVerdict?.verdict === 'manual' ? { verdict: 'invalid', message: rawVerdict.message } : rawVerdict;
     const verdict = outcomeOverride || judged.verdict;
     if (verdict === 'incomplete') throw Error(judged.message);
-    if (verdict === 'invalid') throw Error(q.type === 'expression' ? '请填写化简后的式子，例如 -x + 3。' : q.type === 'choice' ? '请先选择一个选项。' : '请填写数值或分数，例如 1/2。');
+    if (verdict === 'invalid') throw Error(judged.message || (q.type === 'expression' ? '请填写化简后的式子，例如 -x + 3。' : q.type === 'choice' ? '请先选择一个选项。' : '请填写数值或分数，例如 1/2。'));
     const row = { id: state.id + '-a' + (state.attempts.length + 1), mode: 'ai-unit', sessionId: state.id, questionId: q.id, contentKey: q.type + '|' + q.prompt.replace(/\s/g, ''), topicId: q.topicId, skillId: q.skillId, grade: state.grade || 7, dimension: q.dimension, stage: c.stage, difficulty: q.difficulty, itemLevel: q.level, itemB: q.b, calibration: q.calibration, outcome: verdict, userAnswer: String(answer).slice(0, 180), steps: String(steps).slice(0, 1000), assisted: c.hintCount > 0 || c.revealed || c.retry, hintCount: c.hintCount, revealed: c.revealed, repeated: c.retry || state.attempts.some(r => r.questionId === q.id), elapsedMs: clamp(Number(activeMs) || 0, 0, 1800000), at: Date.now(), origin: q.origin || 'validated-template', assessmentVersion: 1, evidenceEligible: true, goalComplete: true };
     state.attempts.push(row); state.feedback = { record: row, label: verdict === 'correct' ? row.assisted ? '提示后完成' : '独立完成' : verdict === 'wrong' ? '先保留这条线索' : verdict === 'skip' ? '先做一个小检查' : '先了解这个方法', diagnosis: null };
     refreshHypotheses(state); state.revision++; return row;

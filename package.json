@@ -1,6 +1,6 @@
 {
   "name": "zhishu-math",
-  "version": "0.6.3",
+  "version": "0.6.4",
   "private": true,
   "description": "知数：按年级学习、知识点自适应练习与能力报告",
   "license": "CC-BY-NC-4.0",
@@ -11,7 +11,7 @@
     "start": "node ai-server.cjs",
     "build": "node build.cjs",
     "build:pages": "node build.cjs --pages",
-    "test": "node tests.cjs && node learning-tests.cjs && node graph-tests.cjs && node trainer-tests.cjs && node server-tests.cjs && node report-tests.cjs && node ui-tests.cjs && node ai-learning-tests.cjs && node ai-service-tests.cjs && node ai-ui-tests.cjs && node curriculum-tests.cjs && node variant-tests.cjs && node review-tests.cjs && node storage-tests.cjs && node deploy-tests.cjs"
+    "test": "node tests.cjs && node learning-tests.cjs && node graph-tests.cjs && node trainer-tests.cjs && node server-tests.cjs && node report-tests.cjs && node ui-tests.cjs && node ai-learning-tests.cjs && node ai-service-tests.cjs && node ai-ui-tests.cjs && node curriculum-tests.cjs && node variant-tests.cjs && node review-tests.cjs && node storage-tests.cjs && node deploy-tests.cjs && node unit-tests.cjs"
   },
   "devDependencies": {
     "linkedom": "^0.18.13"
