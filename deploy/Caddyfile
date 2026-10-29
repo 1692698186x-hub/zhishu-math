@@ -1,0 +1,9 @@
+{$ZHISHU_PUBLIC_DOMAIN} {
+    encode gzip
+    basic_auth {
+        {$ZHISHU_DEMO_USER} {$ZHISHU_DEMO_PASSWORD_HASH}
+    }
+    @configuration path /setup /api/settings /api/ai/check
+    respond @configuration 404
+    reverse_proxy app:8877
+}

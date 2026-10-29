@@ -18,3 +18,40 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm test
       - run: pnpm run build:pages
+  redis-integration:
+    runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7.4-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: '11.25.0'
+      - run: pnpm install --frozen-lockfile
+      - run: node storage-tests.cjs
+        env:
+          ZHISHU_TEST_REDIS_URL: redis://127.0.0.1:6379
+  container-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -f deploy/Dockerfile -t zhishu:check .
+      - run: |
+          docker run -d --name zhishu-check -p 127.0.0.1:8877:8877 zhishu:check
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:8877/api/status; then break; fi
+            sleep 2
+          done
+          curl --fail --silent http://127.0.0.1:8877/api/status
+          curl --fail --silent -H 'Content-Type: application/json' -d '{"grade":1,"skill":"cnm_p001","aiEnabled":false}' http://127.0.0.1:8877/api/unit/start

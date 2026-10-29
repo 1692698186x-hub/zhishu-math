@@ -30,11 +30,8 @@ function createHandler(options = {}) {
   Core.configureCurriculum(data, require('./source/trainer.js').createEngine(data, require('./source/learning-unit.js')), require('./source/judge.js'), require('./source/curriculum-variants.js'));
   const graphEvidence = Core.configureGraph(data.dependencies);
   const getConfig = options.getConfig || (() => Provider.readConfig());
-  const storePath = options.storePath || path.join(__dirname, '.local', 'learning-sessions.json');
-  let sessions = {};
-  if (options.persist !== false && fs.existsSync(storePath)) { try { const stored = JSON.parse(fs.readFileSync(storePath, 'utf8')); if (stored.version === 5) sessions = stored.sessions; } catch (_) {} }
+  const store = options.sessionStore || require('./session-store.cjs').createSessionStore(options);
   const busy = new Set(); let active = 0;
-  function save() { if (options.persist === false) return; fs.mkdirSync(path.dirname(storePath), { recursive: true }); fs.writeFileSync(storePath + '.tmp', JSON.stringify({ version: 5, sessions }), { mode: 0o600 }); fs.renameSync(storePath + '.tmp', storePath); }
   async function select(state) {
     let plan = Core.localPlan(state);
     const config = getConfig();
@@ -68,26 +65,26 @@ function createHandler(options = {}) {
       state.current.aiHint = result.hint; state.current.hintSource = 'ai';
     } catch (_) {} finally { active--; }
   }
-  return async function handle(action, input) {
+  const handle = async function (action, input) {
     if (!input || typeof input !== 'object' || Array.isArray(input)) throw error(400, '请求格式无效。');
     if (action === 'start') {
-      if (Object.keys(sessions).length >= 500) throw error(429, '本机学习档案较多，请先导出记录。');
       if (input.skill && !Object.hasOwn(Core.skills, input.skill)) throw error(400, '这个学习目标不存在，请重新选择。');
       if (input.grade != null && (!Number.isInteger(input.grade) || input.grade < 1 || input.grade > 9 || (Core.skills[input.skill]?.grade || 7) !== input.grade)) throw error(400, '年级与学习目标不一致，请重新选择。');
       const id = crypto.randomBytes(24).toString('hex'), state = Core.create({ id, aiEnabled: input.aiEnabled, skill: input.skill });
-      const previous = typeof input.previousSessionId === 'string' ? sessions[input.previousSessionId] : null;
+      const previous = typeof input.previousSessionId === 'string' ? await store.get(input.previousSessionId) : null;
       if (previous && (previous.grade || 7) === state.grade) { state.attempts = previous.attempts.slice(-150); state.hypotheses = structuredClone(previous.hypotheses); state.exposed = previous.exposed.slice(-300); state.roundStart = state.attempts.length; state.limit += state.roundStart; }
       Core.rememberExposure(state, Array.isArray(input.exposedQuestionIds) ? input.exposedQuestionIds.filter(id => typeof id === 'string' && id.length < 120) : []);
-      sessions[id] = state; Core.next(state); save(); return Core.view(state);
+      Core.next(state); const result = Core.view(state); await store.create(id, state); return result;
     }
-    const id = String(input.sessionId || ''), state = Object.hasOwn(sessions, id) ? sessions[id] : null;
-    if (!state) throw error(404, '这轮学习未找到，可返回并开始新一轮。');
-    Core.refreshEvidence(state);
-    if (action === 'resume') return Core.view(state);
+    const id = String(input.sessionId || '');
     if (busy.has(id)) throw error(409, '正在安排下一步，请稍候。');
-    if (input.revision !== state.revision) throw error(409, '记录已经更新，请恢复当前学习再继续。');
     busy.add(id);
     try {
+      const state = await store.get(id);
+      if (!state) throw error(404, '这轮学习未找到，可返回并开始新一轮。');
+      Core.refreshEvidence(state);
+      if (action === 'resume') return Core.view(state);
+      if (input.revision !== state.revision) throw error(409, '记录已经更新，请恢复当前学习再继续。');
       if (action === 'answer') {
         if (input.questionId !== state.current?.question.id) throw error(409, '题目已更新，请继续当前题目。');
         try { Core.record(state, input.answer, input.steps, input.activeMs, input.outcome); } catch (e) { throw error(400, e.message); }
@@ -107,8 +104,10 @@ function createHandler(options = {}) {
         }
         state.revision++;
       } else throw error(400, '未知的学习操作。');
-      save(); return Core.view(state);
+      const result = Core.view(state); await store.put(id, input.revision, state); return result;
     } finally { busy.delete(id); }
   };
+  handle.close = () => store.close();
+  return handle;
 }
 module.exports = { createHandler, validateDecision, leaksAnswer };

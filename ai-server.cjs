@@ -50,7 +50,7 @@ function createServer(options = {}) {
         if (rates.size > 1000) for (const [id, r] of rates) if (now - r.at > 60000) rates.delete(id);
         let rate = rates.get(ip); if (!rate || now - rate.at > 60000) { rate = { at: now, n: 0 }; rates.set(ip, rate); }
         if (++rate.n > 90) return json(res, 429, { error: '操作较多，请稍后再试。' });
-        if (!unitHandler) { const file = path.join(__dirname, 'tutor-service.cjs'); if (!fs.existsSync(file)) return json(res, 503, { error: '学习引擎正在准备中。' }); unitHandler = require('./tutor-service.cjs').createHandler({ getConfig, fetchImpl: options.fetchImpl, storePath: options.storePath }); }
+        if (!unitHandler) { const file = path.join(__dirname, 'tutor-service.cjs'); if (!fs.existsSync(file)) return json(res, 503, { error: '学习引擎正在准备中。' }); unitHandler = require('./tutor-service.cjs').createHandler({ getConfig, fetchImpl: options.fetchImpl, storePath: options.storePath, sessionStore: options.sessionStore, redisUrl: options.redisUrl, redisPrefix: options.redisPrefix }); }
         const result = await unitHandler(url.pathname.split('/').pop(), await bodyJSON(req));
         return json(res, 200, result);
       }
@@ -58,6 +58,7 @@ function createServer(options = {}) {
       return await fallback(req, res);
     } catch (e) { if (!res.headersSent) json(res, e.status || 400, { error: e.status ? e.message : '请求未完成，请重试。' }); else res.end(); }
   });
+  server.on('close', () => { unitHandler?.close?.().catch(() => {}); });
   return server;
 }
 if (require.main === module) { const config = Provider.readConfig(); createServer().listen(config.port, config.host, () => console.log('知数 AI 学习：http://' + config.host + ':' + config.port + '\n本地 AI 配置：http://' + config.host + ':' + config.port + '/setup')); }
