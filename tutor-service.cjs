@@ -9,7 +9,7 @@ function error(status, message) { return Object.assign(Error(message), { status 
 function leaksAnswer(text, q) {
   const normalized = String(text).replace(/\s/g, '');
   if (q.type === 'numeric') { const a = q.answer.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); return new RegExp('(x[=＝]|答案[是为：:]|解[是为：:])' + a + '(?![0-9.])', 'i').test(normalized); }
-  if (q.type === 'choice') return /(?:选|答案[是为：:])[ABC]/i.test(normalized);
+  if (q.type === 'choice') return /(?:选|答案[是为：:])[ABCD]/i.test(normalized);
   return normalized.includes(q.answer.replace(/\s/g, ''));
 }
 function validateDecision(state, result, provider) {
@@ -82,7 +82,12 @@ function createHandler(options = {}) {
     try {
       const state = await store.get(id);
       if (!state) throw error(404, '这轮学习未找到，可返回并开始新一轮。');
+      const savedRevision = state.revision;
       Core.refreshEvidence(state);
+      if (state.revision !== savedRevision) {
+        await store.put(id, savedRevision, state);
+        if (action !== 'resume') throw error(409, '本题内容已更新，请恢复当前学习并按新题意作答。');
+      }
       if (action === 'resume') return Core.view(state);
       if (input.revision !== state.revision) throw error(409, '记录已经更新，请恢复当前学习再继续。');
       if (action === 'answer') {

@@ -5,7 +5,7 @@
   'use strict';
   const levels = ['basic', 'standard', 'advanced'];
   const levelNames = ['基础巩固', '标准练习', '进阶挑战'];
-  const key = q => q.type + '|' + q.prompt.replace(/\s/g, '');
+  const key = q => q.type + '|' + q.prompt.replace(/\s/g, '') + (q.contentRevision ? '|r' + q.contentRevision : '');
   function supplemental(topic) {
     const out = [];
     for (let n = 1; n <= 18; n++) for (let level = 0; level < 3; level++) {
@@ -53,13 +53,19 @@
       bank[t.id] = [...unique.values()]; bank[t.id].forEach(q => { items[q.id] = q; });
     }
     const historyFor = (records, topicId) => records.filter(r => r.topicId === topicId);
+    const recordKey = r => {
+      const q = items[String(r.questionId || '').replace(/^aic_/, '')];
+      return r.contentKey || (q ? key({ ...q, contentRevision: r.questionRevision || 0 }) : r.questionId);
+    };
     function evidence(records, topicId) {
       const all = historyFor(records, topicId), independent = new Map();
       const seen = new Set();
       for (const r of all) {
-        const contentKey = r.contentKey || (items[r.questionId] ? key(items[r.questionId]) : r.questionId), repeated = seen.has(contentKey);
+        const contentKey = recordKey(r), repeated = seen.has(contentKey);
         seen.add(contentKey);
-        if (['correct', 'wrong'].includes(r.outcome) && !r.assisted && !r.repeated && !repeated && r.evidenceEligible !== false && r.goalComplete !== false) independent.set(contentKey, r);
+        const currentItem = items[String(r.questionId || '').replace(/^aic_/, '')];
+        const revisionOK = !currentItem?.contentRevision || r.questionRevision === currentItem.contentRevision;
+        if (revisionOK && ['correct', 'wrong'].includes(r.outcome) && !r.assisted && !r.repeated && !repeated && r.evidenceEligible !== false && r.goalComplete !== false) independent.set(contentKey, r);
       }
       const recent = [...independent.values()].sort((a, b) => a.at - b.at).slice(-6);
       const correct = recent.filter(r => r.outcome === 'correct').length, n = recent.length;
@@ -77,20 +83,21 @@
       if (run.current || run.feedback || run.finished) return run.current;
       if (run.answers.length >= 12) { run.finished = true; run.reason = '本轮练习已完成'; return null; }
       const used = new Set(run.exposed || []);
-      const seen = new Set(historyFor(records, run.topicId).map(r => r.contentKey || (items[r.questionId] ? key(items[r.questionId]) : r.questionId)));
+      const seen = new Set(historyFor(records, run.topicId).map(r => recordKey(r)));
       const fresh = (bank[run.topicId] || []).filter(q => !used.has(key(q)) && !seen.has(key(q)));
       // A new round may revisit old material, but those attempts never count as fresh evidence.
       const repeat = (bank[run.topicId] || []).filter(q => !used.has(key(q)));
       const candidates = fresh.length ? fresh : repeat;
       if (!candidates.length) { run.finished = true; run.reason = '本知识点本轮题目已完成'; return null; }
       candidates.sort((a, b) => Math.abs(levels.indexOf(a.difficulty) - run.level) - Math.abs(levels.indexOf(b.difficulty) - run.level));
-      const q = candidates[0]; run.current = { questionId: q.id, repeated: seen.has(key(q)), assisted: false };
+      const q = candidates[0]; run.current = { questionId: q.id, questionRevision: q.contentRevision || 0, repeated: seen.has(key(q)), assisted: false };
       run.exposed.push(key(q)); run.draft = { answer: '', steps: '' }; return run.current;
     }
     function record(run, records, outcome, extra = {}) {
       if (!run.current || run.feedback || !['correct', 'wrong', 'skip', 'not_learned'].includes(outcome)) throw Error('Invalid practice state');
       const q = items[run.current.questionId];
       const r = { ...extra, mode: 'topic-learning', stage: run.phase, sessionId: run.id, topicId: q.topicId, questionId: q.id, contentKey: key(q), type: q.type, difficulty: q.difficulty, outcome, assisted: !!run.current.assisted, repeated: !!run.current.repeated, at: Date.now() };
+      r.questionRevision = q.contentRevision || 0;
       run.answers.push(r); records.push(r); run.current = null; run.draft = { answer: '', steps: '' };
       const previous = run.level, independent = outcome === 'correct' && !r.assisted && !r.repeated;
       run.streak = independent ? (run.streakLevel === q.difficulty ? run.streak : 0) + 1 : 0; run.streakLevel = q.difficulty;

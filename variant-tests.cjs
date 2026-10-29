@@ -40,8 +40,8 @@ test('Unsupported subjects, malformed identifiers and out-of-range model paramet
 });
 test('All five former retest shortages are filled while removed source questions remain readable as history', () => {
   for (const id of ['cnm_p210', 'cnm_001', 'cnm_002', 'cnm_003', 'cnm_120']) assert.ok(T.bank[id].filter(q => q.difficulty !== 'basic').length >= 2, id);
-  assert.ok(!T.bank.cnm_p001.some(q => q.id === 'cnm_p001_q4')); assert.match(C.fromId('aic_cnm_p001_q4').prompt, /排队/);
-  assert.ok(!T.bank.cnm_p210.some(q => q.id === 'cnm_p210_q4')); assert.equal(C.fromId('aic_cnm_p210_q4').answer, 'A');
+  assert.ok(!T.bank.cnm_p001.some(q => q.id === 'cnm_p001_q4')); assert.equal(C.fromId('aic_cnm_p001_q4').contentRevision, 1);
+  assert.ok(!T.bank.cnm_p210.some(q => q.id === 'cnm_p210_q4')); assert.equal(C.fromId('aic_cnm_p210_q4').contentRevision, 1);
 });
 test('Directed model variants keep the target topic, avoid exposed content and survive JSON resume', () => {
   const s = C.create({ skill: 'cnm_p132' }); C.next(s); C.record(s, s.current.question.answer); const plan = C.localPlan(s);

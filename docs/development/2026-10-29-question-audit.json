@@ -1,0 +1,20 @@
+{
+  "version": "0.6.5",
+  "sourceQuestions": 2271,
+  "topics": 531,
+  "contentRevisions": 521,
+  "revisedTopics": 205,
+  "methods": {
+    "original-reference-expression": 1739,
+    "current-reference-expression": 1256,
+    "printed-arithmetic": 166,
+    "printed-unit-conversion": 30,
+    "geometric-feasibility-and-Heron": 1,
+    "independent-linear-system": 1
+  },
+  "arithmeticMatches": 3193,
+  "failures": [],
+  "unresolvedComparisons": [],
+  "scope": "Independent arithmetic and prompt-derived checks; all source prompts also received AI content review. No teacher review, calibrated item difficulty or student-effect validation.",
+  "teacherReviewed": false
+}

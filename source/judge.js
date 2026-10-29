@@ -863,10 +863,25 @@
   }
 
   /** 按题型判题：choice 比字母（或选项文字）；numeric 数值等价；short 规范化精确匹配 + accept；self 永远自评。 */
+  function numericGoal(q, user, result) {
+    if (result.verdict !== 'correct' || !q.answerForm) return result;
+    const raw = normalizeText(user).replace(/^[a-z]=/i, '');
+    let complete = true, message;
+    if (q.answerForm === 'reduced-fraction') {
+      const m = /^([+-]?\d+)\/(\d+)$/.exec(raw);
+      complete = m ? gcd(BigInt(m[1]), BigInt(m[2])) === 1n : /^[+-]?\d+$/.test(raw);
+      message = '数值相等，还需要写成最简分数。请继续约分或改成分数后提交。';
+    } else if (q.answerForm === 'decimal-places') {
+      const m = /^[+-]?\d*\.(\d+)(?:[^\d=+*/%]+)?$/.exec(raw);
+      complete = !!m && m[1].length === q.answerDecimals;
+      message = '数值相等，请按题目要求保留' + q.answerDecimals + '位小数，再提交。';
+    }
+    return complete ? result : { verdict: 'incomplete', reason: 'answer-form', message };
+  }
   function judgeQuestion(q, user) {
     switch (q.type) {
       case 'choice': return judgeChoice(user, q);
-      case 'numeric': return Units?.check(q, user, parseAnswer, judgeNumeric) || judgeNumeric(user, q);
+      case 'numeric': return numericGoal(q, user, Units?.check(q, user, parseAnswer, judgeNumeric) || judgeNumeric(user, q));
       case 'short': return judgeShort(user, q);
       case 'self': return { verdict: 'manual', reason: 'self' };
       default: return judgeAnswer(user, q.answer); // legacy：来自 diagnostic_question

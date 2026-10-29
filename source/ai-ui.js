@@ -18,6 +18,12 @@
       }
       const redraw = owner => { options.save(); if (currentOwner() === owner) options.render(); };
       const view = owner => unitFor(owner)?.view;
+      function applyView(unit, result) {
+        if (result.question && unit.view?.question?.id === result.question.id && (unit.view.question.contentRevision || 0) !== (result.question.contentRevision || 0)) {
+          unit.draft = {}; notice = '本题内容已更新，请按当前题意重新作答。';
+        }
+        unit.view = result;
+      }
       function time(qid) {
         if (clock.id !== qid) clock = { id: qid, at: Date.now(), ms: 0 };
         return clock;
@@ -46,7 +52,7 @@
       }
       async function start(requestedSkill) {
         const owner = currentOwner(), grade = currentGrade(), previous = unitFor(owner, grade);
-        const exposedQuestionIds = (owner.records || []).map(r => r.questionId).filter(Boolean).slice(-150);
+        const exposedQuestionIds = (owner.records || []).filter(r => r.questionId).map(r => r.questionId + (r.questionRevision ? '@' + r.questionRevision : '')).slice(-150);
         const skill = requestedSkill || document.querySelector('#ai-goal')?.value || previous?.view?.goal?.skillId || options.getTopicId?.() || 'distribute';
         options.onStartGoal?.(skill);
         busy = true; notice = ''; redraw(owner);
@@ -87,11 +93,11 @@
             else if (action === 'report') { const facts = C.reportFacts(state); state.report = { source: 'rules', summary: facts.summary, advice: facts.advice, evidenceKey: facts.evidenceKey, at: Date.now() }; }
             result = C.view(state);
           }
-          unit.view = result; if (['next', 'retry'].includes(action)) unit.draft = {};
+          applyView(unit, result); if (['next', 'retry'].includes(action)) unit.draft = {};
           merge(owner, result);
         } catch (e) {
           notice = e.message;
-          if (unit.mode === 'server') { try { unit.view = await post('resume', { sessionId: unit.sessionId }); merge(owner, unit.view); } catch (_) {} }
+          if (unit.mode === 'server') { try { applyView(unit, await post('resume', { sessionId: unit.sessionId })); merge(owner, unit.view); } catch (_) {} }
         } finally { busy = false; redraw(owner); }
       }
       function sourceLabel(v) {

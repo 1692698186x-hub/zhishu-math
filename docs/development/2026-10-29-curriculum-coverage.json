@@ -1,5 +1,5 @@
 {
-  "version": "0.6.4",
+  "version": "0.6.5",
   "grades": [
     {
       "grade": 1,
@@ -40,36 +40,23 @@
     {
       "grade": 7,
       "topics": 119,
-      "canonicalItems": 1091,
+      "canonicalItems": 1105,
       "insufficientIndependentRetests": []
     },
     {
       "grade": 8,
       "topics": 114,
-      "canonicalItems": 511,
+      "canonicalItems": 523,
       "insufficientIndependentRetests": []
     },
     {
       "grade": 9,
       "topics": 82,
-      "canonicalItems": 363,
+      "canonicalItems": 366,
       "insufficientIndependentRetests": []
     }
   ],
   "totalTopics": 531,
-  "totalCanonicalItems": 2847,
-  "note": "Counts describe runnable engineering coverage. They do not establish question-topic alignment, teacher review, calibrated difficulty, cognitive dimensions or learning effectiveness.",
-  "variationSupport": [
-    "cnm_p001",
-    "cnm_p037",
-    "cnm_p061",
-    "cnm_p096",
-    "cnm_p132",
-    "cnm_p210",
-    "cnm_001",
-    "cnm_002",
-    "cnm_003",
-    "cnm_120",
-    "cnm_219"
-  ]
+  "totalCanonicalItems": 2876,
+  "note": "Counts describe runnable engineering coverage. They do not establish question-topic alignment, teacher review, calibrated difficulty, cognitive dimensions or learning effectiveness."
 }

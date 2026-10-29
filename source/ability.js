@@ -27,7 +27,10 @@
     }
     function evidence(records, id) {
       const all = records.filter(r => r.topicId === id);
-      const scored = all.filter(r => ['correct', 'wrong'].includes(r.outcome) && !r.assisted && !r.repeated);
+      const scored = all.filter(r => {
+        const q = questions.find(q => q.id === String(r.questionId || '').replace(/^aic_/, ''));
+        return (!q?.contentRevision || r.questionRevision === q.contentRevision) && r.evidenceEligible !== false && r.goalComplete !== false && ['correct', 'wrong'].includes(r.outcome) && !r.assisted && !r.repeated;
+      });
       // Repeated exposure to the same item is one piece of evidence, not a new independent success.
       const unique = new Map();
       scored.forEach(r => unique.set(r.questionId, r));
@@ -139,6 +142,7 @@
       if (!session.current || !['correct', 'wrong', 'not_learned', 'assisted', 'skip'].includes(outcome)) throw Error('Invalid answer state');
       const q = bank[session.current.topicId].find(q => q.id === session.current.questionId);
       const r = { ...(extra || {}), sessionId: session.id, mode: session.mode, topicId: q.topicId, questionId: q.id, difficulty: q.difficulty, type: q.type, outcome, at: Date.now(), kind: session.current.kind, linkedTo: session.current.linkedTo, assisted: outcome === 'assisted' || !!extra?.assisted };
+      r.questionRevision = q.contentRevision || 0;
       session.answers.push(r); records.push(r); session.current = null;
       if (r.kind === 'confirm' && r.outcome === 'wrong' && !session.rootIds.includes(q.topicId)) session.rootIds.push(q.topicId);
       if (session.answers.length >= session.limit) session.finished = true;

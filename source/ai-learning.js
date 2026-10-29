@@ -40,7 +40,7 @@
   function topicsForGrade(grade) { return (curriculum?.topics || []).filter(t => t.grade === Number(grade)); }
   function rememberExposure(state, ids = []) {
     for (const id of ids.slice(-150)) {
-      try { const q = fromId(/^(aic_|aiv_|ai5_)/.test(String(id)) ? id : 'aic_' + id); if ((q.grade || 7) <= (state.grade || 7) && !state.exposed.includes(q.prompt)) state.exposed.push(q.prompt); } catch (_) {}
+      try { const token = String(id), match = /^(.*)@(\d+)$/.exec(token), rawId = match ? match[1] : token, revision = match ? Number(match[2]) : 0; const q = fromId(/^(aic_|aiv_|ai5_)/.test(rawId) ? rawId : 'aic_' + rawId); if (revision !== (q.contentRevision || 0)) continue; if ((q.grade || 7) <= (state.grade || 7) && !state.exposed.includes(q.prompt)) state.exposed.push(q.prompt); } catch (_) {}
     }
   }
   function curriculumItem(raw) {
@@ -131,13 +131,15 @@
   function fromId(id) { if (String(id).startsWith('aiv_')) { const m = /^aiv_(cnm_p?\d+)_([012])_(\d+)$/.exec(String(id)); if (!m) throw Error('unknown question'); return variation(m[1], Number(m[2]), Number(m[3])); } if (String(id).startsWith('aic_')) { const raw = curriculum?.items[String(id).slice(4)]; if (!raw || !skills[raw.topicId]?.curriculum || !['numeric', 'choice'].includes(raw.type)) throw Error('unknown question'); return curriculumItem(raw); } const p = String(id).split('_'); if (p.length !== 7 || p[0] !== 'ai5') throw Error('unknown question'); return blueprint(p[1], Number(p[2]), { a: Number(p[3]), b: Number(p[4]), x: Number(p[5]), context: p[6] }); }
   function auditAttempts(attempts) {
     return attempts.map(r => {
-      if (variants?.deprecated.includes(String(r.questionId || '').replace(/^aic_/, ''))) return { ...r, evidenceEligible: false, evidenceReview: '旧题侧重点与本次知识点目标不一致，保留原作答，需用新题复核', assessmentVersion: 2 };
+      const rawId = String(r.questionId || '').replace(/^aic_/, ''), raw = curriculum?.items[rawId];
+      if (raw?.contentRevision && (r.questionRevision || 0) !== raw.contentRevision) return { ...r, evidenceEligible: false, goalComplete: false, evidenceReview: '题目内容或目标不一致的旧记录保留，需用修订后的新题复核', evidenceReviewCode: 'question-revision', assessmentVersion: 4 };
+      if (variants?.deprecated.includes(rawId) && !raw?.contentRevision) return { ...r, evidenceEligible: false, evidenceReview: '旧题侧重点与本次知识点目标不一致，保留原作答，需用新题复核', assessmentVersion: 2 };
       if (curriculum && ['correct', 'wrong'].includes(r.outcome) && r.questionId) {
         try {
           const q = fromId(/^(aic_|aiv_|ai5_)/.test(r.questionId) ? r.questionId : 'aic_' + r.questionId);
           if (q.curriculum && q.type === 'numeric') {
             const judged = curriculumJudge.judgeQuestion(q, r.userAnswer);
-            if (judged.verdict !== r.outcome && (judged.reason?.startsWith('unit-') || judged.verdict === 'correct' && judged.reason === 'unit-equivalent')) return { ...r, evidenceEligible: false, goalComplete: false, evidenceReview: '旧记录的单位或换算格式需用新题复核，保留原作答但不继续计入表现', evidenceReviewCode: 'unit-goal', assessmentVersion: 3 };
+            if (judged.verdict !== r.outcome && (judged.reason?.startsWith('unit-') || judged.reason === 'answer-form' || judged.verdict === 'correct' && judged.reason === 'unit-equivalent')) return { ...r, evidenceEligible: false, goalComplete: false, evidenceReview: '旧记录的单位或作答目标需用新题复核，保留原作答但不继续计入表现', evidenceReviewCode: judged.reason === 'answer-form' ? 'answer-form' : 'unit-goal', assessmentVersion: 3 };
           }
         } catch (_) {}
       }
@@ -269,7 +271,7 @@
     }
     if (!q) { state.finished = true; state.finishReason = '当前可用的新题已完成，记录已保存。'; return null; }
     state.current = { question: q, stage, hintCount: 0, revealed: false, retry: false, activeMs: 0, displayedAt: Date.now() };
-    state.exposed.push(q.prompt); state.draft = {}; state.feedback = null; state.phase = stage;
+    state.exposed.push(q.prompt); state.draft = {}; state.feedback = null; state.phase = stage; state.contentNotice = null;
     return q;
   }
   function next(state) {
@@ -359,6 +361,9 @@
     if (verdict === 'incomplete') throw Error(judged.message);
     if (verdict === 'invalid') throw Error(judged.message || (q.type === 'expression' ? '请填写化简后的式子，例如 -x + 3。' : q.type === 'choice' ? '请先选择一个选项。' : '请填写数值或分数，例如 1/2。'));
     const row = { id: state.id + '-a' + (state.attempts.length + 1), mode: 'ai-unit', sessionId: state.id, questionId: q.id, contentKey: q.type + '|' + q.prompt.replace(/\s/g, ''), topicId: q.topicId, skillId: q.skillId, grade: state.grade || 7, dimension: q.dimension, stage: c.stage, difficulty: q.difficulty, itemLevel: q.level, itemB: q.b, calibration: q.calibration, outcome: verdict, userAnswer: String(answer).slice(0, 180), steps: String(steps).slice(0, 1000), assisted: c.hintCount > 0 || c.revealed || c.retry, hintCount: c.hintCount, revealed: c.revealed, repeated: c.retry || state.attempts.some(r => r.questionId === q.id), elapsedMs: clamp(Number(activeMs) || 0, 0, 1800000), at: Date.now(), origin: q.origin || 'validated-template', assessmentVersion: 1, evidenceEligible: true, goalComplete: true };
+    row.questionRevision = q.contentRevision || 0;
+    if (q.contentRevision) row.contentKey += '|r' + q.contentRevision;
+    row.repeated = !!c.retry || state.attempts.some(r => r.questionId === q.id && (r.questionRevision || 0) === row.questionRevision);
     state.attempts.push(row); state.feedback = { record: row, label: verdict === 'correct' ? row.assisted ? '提示后完成' : '独立完成' : verdict === 'wrong' ? '先保留这条线索' : verdict === 'skip' ? '先做一个小检查' : '先了解这个方法', diagnosis: null };
     refreshHypotheses(state); state.revision++; return row;
   }
@@ -371,6 +376,14 @@
   function reveal(state) { if (!state.current) throw Error('没有当前题目。'); state.current.revealed = true; state.revision++; state.events.push({ type: 'reveal', questionId: state.current.question.id, at: Date.now() }); }
   function retry(state) { if (!state.feedback || !state.current) throw Error('当前不能重试。'); state.current.retry = true; state.feedback = null; state.draft = {}; state.revision++; }
   function refreshEvidence(state) {
+    if (state.current?.question?.curriculum) {
+      const previous = state.current.question, current = fromId(previous.id);
+      if ((previous.contentRevision || 0) !== (current.contentRevision || 0)) {
+        state.current = { ...state.current, question: { ...current, origin: previous.origin }, hintCount: 0, revealed: false, retry: false, aiHint: null, hintSource: 'rules' };
+        state.feedback = null; state.nextPlan = null; state.draft = {}; state.revision++;
+        state.contentNotice = '本题内容已更新，请按当前题意重新作答。';
+      }
+    }
     state.attempts = auditAttempts(state.attempts || []);
     if (state.feedback?.record) state.feedback.record = state.attempts.find(r => r.id === state.feedback.record.id) || state.feedback.record;
     if (state.feedback?.record.evidenceEligible === false) {
@@ -381,14 +394,14 @@
     return state;
   }
   function view(state) {
+    refreshEvidence(state);
     if (state.current?.question?.id?.startsWith('ai5_') || state.current?.question?.id?.startsWith('aic_') || state.current?.question?.id?.startsWith('aiv_')) {
       const previous = state.current.question;
       state.current.question = { ...fromId(previous.id), origin: previous.origin };
     }
-    refreshEvidence(state);
     const facts = reportFacts(state), report = state.report?.evidenceKey === facts.evidenceKey ? state.report : null;
     const c = state.current, q = c?.question;
-    const publicQ = q ? { id: q.id, skillId: q.skillId, topicId: q.topicId, level: q.level, difficulty: q.difficulty, type: q.type, prompt: q.prompt, choices: q.choices, origin: q.origin || 'validated-template' } : null;
+    const publicQ = q ? { id: q.id, contentRevision: q.contentRevision || 0, skillId: q.skillId, topicId: q.topicId, level: q.level, difficulty: q.difficulty, type: q.type, prompt: q.prompt, choices: q.choices, origin: q.origin || 'validated-template' } : null;
     const showAnswer = c?.revealed || state.feedback?.record.outcome === 'correct' && state.feedback.record.evidenceEligible !== false;
     if (showAnswer && publicQ) { publicQ.answer = q.answer; publicQ.explanation = q.explanation; }
     return { id: state.id, revision: state.revision, grade: state.grade || 7, phase: state.phase, finished: state.finished, finishReason: state.finishReason, aiEnabled: state.aiEnabled, goal: state.goal, roundStart: state.roundStart, task: facts.task, question: publicQ, hintCount: c?.hintCount || 0, hint: c?.aiHint || (c?.hintCount ? q.hints[c.hintCount - 1] : null), hintSource: c?.hintSource || 'rules', report, reportStale: !!state.report && !report, facts, revealed: !!c?.revealed, retrying: !!c?.retry, feedback: state.feedback, nextPlan: state.nextPlan, attempts: state.attempts, decisions: state.decisions, hypotheses: state.hypotheses, dimensions: profile(state.attempts), estimate: estimate(state.attempts), targetBand: [.65, .75], calibration: '实验参数，未经学生数据校准' };

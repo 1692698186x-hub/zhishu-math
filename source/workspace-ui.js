@@ -32,8 +32,20 @@
   if (!db.profiles.some(p => p.id === db.activeId)) db.activeId = db.profiles[0].id;
   for (const p of db.profiles) {
     p.records = AILearning.auditAttempts(p.records || []);
+    for (const s of Object.values(p.spaces || {})) for (const r of Object.values(s.runs || {})) {
+      const id = r.current?.questionId || r.feedback?.record?.questionId, q = T.items[id];
+      const revision = r.current?.questionRevision ?? r.feedback?.record?.questionRevision ?? 0;
+      if (!r.finished && q?.contentRevision && revision !== q.contentRevision) {
+        r.current = { questionId: q.id, questionRevision: q.contentRevision, repeated: false, assisted: false };
+        r.feedback = null; r.draft = { answer: '', steps: '' }; r.streak = 0; r.level = 1;
+      }
+    }
     for (const unit of [p.aiUnit, ...Object.values(p.aiUnits || {}), ...Object.values(p.aiPausedUnits || {})].filter(Boolean)) {
-    if (unit.mode === 'offline' && unit.state) unit.view = AILearning.view(unit.state);
+    if (unit.mode === 'offline' && unit.state) {
+      const prior = unit.view?.question;
+      unit.view = AILearning.view(unit.state);
+      if (prior?.id === unit.view.question?.id && (prior.contentRevision || 0) !== (unit.view.question.contentRevision || 0)) unit.draft = {};
+    }
     else if (unit.view) {
       const v = unit.view; AILearning.refreshEvidence(v);
       if (!v.revealed && v.feedback?.record.evidenceEligible === false && v.question) { delete v.question.answer; delete v.question.explanation; }
