@@ -7,3 +7,5 @@
 @media print{body{background:#fff}.sidebar,.topbar,.report-heading button,.report-actions,.source-footer,.history-list,.mobile-menu,.grade-page{display:none!important}.workspace-main{margin:0;padding:0}.report-panel,.stat-card{break-inside:avoid}.report-grid{grid-template-columns:1fr 1fr}.report-stats{grid-template-columns:repeat(4,1fr)}}
 
 @media(min-width:761px) and (max-height:800px){.grade-top{height:80px}.grade-content{margin-top:20px}.grade-steps{margin-bottom:23px}.grade-heading{margin-bottom:22px}.grade-heading h1{font-size:31px}.grade-heading p{margin-top:7px}.grade-emblem{width:67px;height:67px;border-radius:21px}.school-heading{margin:18px 0 12px}.grade-card{min-height:83px;padding:17px 23px}.grade-bottom{margin-top:22px}.grade-content .source-footer{padding-top:25px}}
+
+.source-footer{justify-content:flex-end}
