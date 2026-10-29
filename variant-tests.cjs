@@ -58,4 +58,8 @@ test('Exhausted fixed items use checked variants without treating repeats as ind
   const s = C.create({ skill: 'cnm_p132' }); s.exposed = T.bank.cnm_p132.map(q => q.prompt); C.next(s); assert.equal(s.current.question.origin, 'validated-variant');
   const first = s.current.question.prompt; C.record(s, s.current.question.answer); C.applyPlan(s, C.localPlan(s)); C.next(s); assert.notEqual(s.current.question.prompt, first);
 });
+test('A new standard-level review uses a standard variant before silently dropping to leftover basic items', () => {
+  const s = C.create({ skill: 'cnm_p132' }); s.exposed = T.bank.cnm_p132.filter(q => q.difficulty !== 'basic').map(q => q.prompt); C.next(s);
+  assert.equal(s.current.question.level, 1); assert.equal(s.current.question.origin, 'validated-variant');
+});
 console.log(JSON.stringify({ variantPassed: passed, parameterCases, supportedTopics: V.supported.length, gradesCovered: 9, liveModelCalls: 0 }));

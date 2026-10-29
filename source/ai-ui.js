@@ -9,7 +9,13 @@
       const currentOwner = () => options.getProfile();
       const currentGrade = () => options.getGrade?.() || 7;
       const unitFor = (owner, grade = currentGrade()) => grade === 7 ? owner.aiUnit : owner.aiUnits?.[grade];
-      function setUnit(owner, unit, grade) { if (grade === 7) owner.aiUnit = unit; else { owner.aiUnits ||= {}; owner.aiUnits[grade] = unit; } }
+      function setUnit(owner, unit, grade) {
+        const previous = unitFor(owner, grade);
+        if (previous && !previous.view.finished && previous.view.task?.status !== 'verified' && previous.view.id !== unit.view.id && previous.view.goal) {
+          owner.aiPausedUnits ||= {}; owner.aiPausedUnits[grade + ':' + previous.view.goal.skillId] = previous;
+        }
+        if (grade === 7) owner.aiUnit = unit; else { owner.aiUnits ||= {}; owner.aiUnits[grade] = unit; }
+      }
       const redraw = owner => { options.save(); if (currentOwner() === owner) options.render(); };
       const view = owner => unitFor(owner)?.view;
       function time(qid) {
@@ -26,6 +32,7 @@
         owner.records ||= []; const records = new Map(owner.records.filter(r => r.id).map(r => [r.id, r]));
         for (const r of result.attempts) { if (records.has(r.id)) Object.assign(records.get(r.id), r); else { owner.records.push({ ...r }); records.set(r.id, owner.records.at(-1)); } }
         owner.records = C.auditAttempts(owner.records);
+        root.ReviewPlans.update(owner, result, C);
         if (currentOwner() === owner && result.question) options.onQuestion?.(result.question.topicId);
       }
       function capture() {
@@ -41,6 +48,7 @@
         const owner = currentOwner(), grade = currentGrade(), previous = unitFor(owner, grade);
         const exposedQuestionIds = (owner.records || []).map(r => r.questionId).filter(Boolean).slice(-150);
         const skill = requestedSkill || document.querySelector('#ai-goal')?.value || previous?.view?.goal?.skillId || options.getTopicId?.() || 'distribute';
+        options.onStartGoal?.(skill);
         busy = true; notice = ''; redraw(owner);
         try {
           if (/^https?:$/.test(location.protocol)) {
@@ -157,12 +165,26 @@
         const analysis = v.report ? '<div class="report-analysis"><span class="tag">' + (v.report.source === 'ai' ? esc(v.report.provider || 'AI') + ' 补充建议' : '本地分析') + '</span><p>' + esc(v.report.summary) + '</p><p>' + esc(v.report.advice) + '</p></div>' : v.reportStale ? '<p class="ai-report-note">作答记录已更新，旧的补充分析已收起。可以按最新证据更新单元建议。</p>' : '';
         return '<section class="ai-unit-report"><div class="ai-report-heading"><div><div class="eyebrow">' + '一二三四五六七八九'[(v.grade || currentGrade()) - 1] + '年级 · AI 学习记录</div><h2>本轮进展与下一步</h2></div><span class="tag">实验性表现指标</span></div>' + summary + evidence + responses + hypotheses + (C.skills[v.goal?.skillId]?.curriculum ? '<p class="ai-report-note">本次按知识点显示实际作答，不将题库标签直接换算为通用五维能力分数。生成本年级报告后，可查看各知识点的进展。</p>' : '<details class="ai-profile-details"><summary>查看五维单元表现</summary><div class="ai-report-grid"><div>' + radar(dims) + '<p class="ai-report-note">每一维至少有 3 道不同新题的独立作答才显示估计点。证据不足保持留空。</p></div><div class="ai-dimension-list">' + dims.map(d => '<div class="ai-dimension"><div><b>' + esc(d.name) + '</b><small>' + d.correct + ' / ' + d.n + ' 道新题独立通过</small></div><span>' + (d.value === null ? esc(d.status) : d.value + ' / 100') + '</span></div>').join('') + '<p class="ai-report-note">单元答题表现经过平滑处理；题目难度尚未校准。</p></div></div></details>') + analysis + '<div class="ai-report-actions"><button class="secondary" data-ai="report"' + (busy ? ' disabled' : '') + '>' + (busy ? '正在更新…' : '更新单元建议') + '</button><button class="text-button" data-ai="continue">' + (v.finished ? '返回本次小结' : '继续本次目标') + '</button></div><details class="ai-decision-log"><summary>查看教学安排与估计依据</summary><p>实验性能力估计 θ = ' + v.estimate.theta + '，估计不确定性（后验标准差）' + v.estimate.sd + '。使用人工预设难度的简化 IRT，未经学生数据校准；65%～75%为练习选题试验目标。</p>' + v.decisions.slice(-6).reverse().map(p => '<div><span class="tag">' + (p.source === 'ai' ? 'AI 决策' : '本地决策') + '</span><b>' + esc(C.actionNames[p.action]) + ' · ' + esc(C.skills[p.targetSkill].name) + '</b><p>' + esc(p.reason) + '</p><small>引用 ' + p.evidenceIds.length + ' 条作答记录</small></div>').join('') + '</details></section>';
       }
+      function reviews(owner = currentOwner()) {
+        const queue = root.ReviewPlans.queue(owner, currentGrade(), C);
+        const paused = Object.entries(owner.aiPausedUnits || {}).filter(([key]) => key.startsWith(currentGrade() + ':'));
+        const pausedList = paused.length ? '<details class="ai-paused-list"><summary>继续未完成的练习（' + paused.length + '）</summary>' + paused.map(([key, unit]) => '<button class="text-button" data-ai="resume-task" data-ai-key="' + esc(key) + '">继续“' + esc(unit.view.task?.name || C.skills[unit.view.goal?.skillId]?.name) + '”</button>').join('') + '</details>' : '';
+        if (!queue.length) return pausedList;
+        const row = p => '<article class="ai-review-row"><div><b>' + esc(p.name) + '</b><small>' + esc(p.label) + ' · ' + (p.due ? '现在可开始' : new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', month: 'long', day: 'numeric' }).format(p.dueAt)) + '</small></div><button class="secondary" data-ai="review" data-ai-skill="' + esc(p.skillId) + '"' + (busy ? ' disabled' : '') + '>' + (p.due ? '用新题复习' : '提前练一练') + '</button></article>';
+        return '<section class="ai-review-panel"><div class="eyebrow">' + '一二三四五六七八九'[currentGrade() - 1] + '年级 · 复习安排</div><h2>把这次会的，留到下次也会</h2><p>已验证的目标会留在这里。之后换新题试一试，看看能否保持独立完成。</p>' + queue.slice(0, 3).map(row).join('') + (queue.length > 3 ? '<details><summary>还有 ' + (queue.length - 3) + ' 个目标</summary>' + queue.slice(3).map(row).join('') + '</details>' : '') + '<details class="ai-review-policy"><summary>复习安排依据</summary><p>依据两道实际新题独立通过记录，试行按1、3、7天安排复习；提前练习不会不断推迟原定时间。再次独立出错或原证据需复核时，会重新检查。该安排尚未经过真实学生效果验证。</p></details>' + pausedList + '</section>';
+      }
       function bind() {
         document.querySelectorAll('[data-ai-choice]').forEach(el => el.onclick = () => { if (busy) return; capture(); unitFor(currentOwner()).draft.answer = el.dataset.aiChoice; redraw(currentOwner()); });
         document.querySelectorAll('[data-ai]').forEach(el => el.onclick = () => {
           const action = el.dataset.ai;
           if (action === 'start') { if (!busy) start(); }
           else if (action === 'start-current') { if (!busy) start(options.getTopicId()); }
+          else if (action === 'review') { if (!busy) start(el.dataset.aiSkill).then(() => options.continue()); }
+          else if (action === 'resume-task') {
+            const owner = currentOwner(), key = el.dataset.aiKey, unit = owner.aiPausedUnits?.[key];
+            if (busy || !unit || !key.startsWith(currentGrade() + ':')) return;
+            delete owner.aiPausedUnits[key]; setUnit(owner, unit, currentGrade()); options.onStartGoal?.(unit.view.goal.skillId); options.save(); options.continue();
+          }
           else if (action === 'exit') { capture(); options.exit(); }
           else if (action === 'continue') options.continue();
           else if (action === 'report-nav') { capture(); options.goReport(); }
@@ -173,7 +195,7 @@
         for (const id of ['#ai-answer', '#ai-steps']) { const input = document.querySelector(id); if (input) { input.oninput = capture; if (id === '#ai-answer') input.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); operate('answer'); } }; } }
         const enable = document.querySelector('#ai-enabled'); if (enable) enable.onchange = e => operate('mode', { aiEnabled: e.target.checked });
       }
-      return { render, report, bind, start, capture, operate };
+      return { render, report, reviews, bind, start, capture, operate };
     }
   };
 })(typeof globalThis !== 'undefined' ? globalThis : this);

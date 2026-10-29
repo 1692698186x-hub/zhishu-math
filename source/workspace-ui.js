@@ -32,7 +32,7 @@
   if (!db.profiles.some(p => p.id === db.activeId)) db.activeId = db.profiles[0].id;
   for (const p of db.profiles) {
     p.records = AILearning.auditAttempts(p.records || []);
-    for (const unit of [p.aiUnit, ...Object.values(p.aiUnits || {})].filter(Boolean)) {
+    for (const unit of [p.aiUnit, ...Object.values(p.aiUnits || {}), ...Object.values(p.aiPausedUnits || {})].filter(Boolean)) {
     if (unit.mode === 'offline' && unit.state) unit.view = AILearning.view(unit.state);
     else if (unit.view) {
       const v = unit.view; AILearning.refreshEvidence(v);
@@ -40,6 +40,8 @@
       v.facts = AILearning.reportFacts(v); v.dimensions = AILearning.profile(v.attempts); v.estimate = AILearning.estimate(v.attempts);
       if (v.report && v.report.evidenceKey !== v.facts.evidenceKey) { v.report = null; v.reportStale = true; }
     }
+    const lastAt = unit.view?.attempts?.at(-1)?.at;
+    if (Number.isFinite(lastAt)) ReviewPlans.update(p, unit.view, AILearning, lastAt);
   }
     }
   db.config ||= {}; db.ui ||= { screen: 'grades', selectedGrade: null };
@@ -121,7 +123,7 @@
   function reportPage() {
     let report = profile().reports?.[grade()];
     if (report) { const fresh = reportData(); if (report.schemaVersion !== 2 || report.evidenceKey !== fresh.evidenceKey) report = profile().reports[grade()] = fresh; }
-    const unitReport = tutor.report(profile());
+    const unitReport = tutor.report(profile()) + tutor.reviews(profile());
     const intro = '<div class="report-heading"><div><div class="eyebrow"><i class="eyebrow-line"></i>' + gradeName(grade()) + ' · 数学</div><h1 tabindex="-1" id="page-heading">能力水平报告</h1><p>' + (report ? '更新于 ' + new Date(report.at).toLocaleString('zh-CN', { month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '看看已经走过的路，找到下一步。') + '</p></div><button class="primary" data-action="generate-report"' + (analysisBusy ? ' disabled' : '') + '>' + icon('spark') + (analysisBusy ? '正在分析' : report ? '更新报告' : '生成报告') + '</button></div>';
     if (!report && unitReport) return intro + unitReport;
     if (!report) return intro + unitReport + '<div class="report-prompt empty"><div class="empty-icon">' + icon('chart') + '</div><h2>你的学习进展，就在这里</h2><p>根据已经完成的练习，生成本年级的能力水平报告。</p><button class="primary" data-action="generate-report">生成能力报告 ' + icon('arrow') + '</button></div>';
@@ -249,7 +251,7 @@
     document.querySelectorAll('[data-chapter]').forEach(el => el.ontoggle = () => { space().openChapters = [...document.querySelectorAll('[data-chapter]')].filter(d => d.open).map(d => d.dataset.chapter); save(); });
   }
   const graph = KnowledgeGraph.create({ data: MATH_DATA, getGrade: grade, getCurrentTopic: () => space().topicId, getEvidence: id => T.evidence(profile().records, id), gradeName, chapterName, onLearn: selectTopic });
-  const tutor = AITutorUI.create({ getProfile: profile, getGrade: grade, getTopicId: () => space().topicId, save, render, goReport: () => go('report'), exit: () => { space().aiActive = false; render(true); }, continue: () => { space().aiActive = true; go('practice'); } });
+  const tutor = AITutorUI.create({ getProfile: profile, getGrade: grade, getTopicId: () => space().topicId, onStartGoal: skill => { const id = AILearning.skills[skill]?.topicId; if (T.topics[id]?.grade === grade()) space().topicId = id; }, save, render, goReport: () => go('report'), exit: () => { space().aiActive = false; render(true); }, continue: () => { space().aiActive = true; go('practice'); } });
   render();
   if (db.ui.screen === 'report') checkStatus();
 })();

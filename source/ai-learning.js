@@ -246,8 +246,10 @@
       const pool = (curriculum.bank[skill] || []).filter(raw => !used.has(raw.prompt));
       const eligible = stage === 'retest' && skill === state.goal?.skillId ? pool.filter(raw => ['basic', 'standard', 'advanced'].indexOf(raw.difficulty) >= state.goal.level) : pool;
       eligible.sort((a, b) => Math.abs(['basic', 'standard', 'advanced'].indexOf(a.difficulty) - level) - Math.abs(['basic', 'standard', 'advanced'].indexOf(b.difficulty) - level));
-      if (!q && eligible.length) q = curriculumItem(eligible[0]);
+      const exact = eligible.find(raw => ['basic', 'standard', 'advanced'].indexOf(raw.difficulty) === level);
+      if (!q && exact) q = curriculumItem(exact);
       if (!q && variants?.supported.includes(skill)) for (let n = 0; n < 120 && !q; n++) { const candidate = variation(skill, level, n); if (!used.has(candidate.prompt)) q = candidate; }
+      if (!q && eligible.length) q = curriculumItem(eligible[0]);
       if (!q) { state.finished = true; state.finishReason = '这个目标可用的独立新题不足，先保留记录；尚不能据此宣布本次目标已验证。'; return null; }
     }
     if (generated && !skills[skill]?.curriculum) { try { q = blueprint(skill, level, generated); if (used.has(q.prompt)) q = null; else q.origin = 'ai-parameters'; } catch (_) {} }
