@@ -11,7 +11,7 @@ function boot(store = new Map()) {
   const click = s => { const e = find(s); assert.ok(!e.disabled, s); e.onclick({ target: e }); };
   const fill = (s, value) => { const e = find(s); e.value = value; e.oninput?.({ target: e }); };
   const db = () => JSON.parse(store.get(KEY)), profile = () => db().profiles.find(p => p.id === db().activeId), unit = () => profile().aiUnit;
-  const start = () => { click('[data-grade="7"]'); click('[data-action="enter"]'); click('[data-action="ai-entry"]'); click('[data-ai="start"]'); };
+  const start = () => { click('[data-grade="7"]'); click('[data-action="enter"]'); click('[data-action="ai-entry"]'); Object.defineProperty(find('#ai-goal'), 'value', { value: 'distribute', configurable: true }); click('[data-ai="start"]'); };
   const answer = (wrong = false) => { const q = C.fromId(unit().view.question.id); if (q.type === 'choice') click('[data-ai-choice="' + (wrong ? q.choices.find(x => x.key !== q.answer).key : q.answer) + '"]'); else fill('#ai-answer', wrong ? '999' : q.answer); click('[data-ai="submit"]'); };
   return { window, context, store, find, click, fill, db, profile, unit, start, answer };
 }

@@ -26,16 +26,37 @@
   const sigmoid = x => 1 / (1 + Math.exp(-x));
   const clamp = (x, min, max) => Math.max(min, Math.min(max, x));
   const fmt = n => n < 0 ? ' - ' + -n : ' + ' + n;
+  let curriculum = null, curriculumJudge = null;
+  function configureCurriculum(data, trainer, judge) {
+    curriculum = { topics: data.topics, bank: trainer.bank, items: trainer.items };
+    curriculumJudge = judge;
+    for (const t of data.topics) {
+      const prerequisites = data.dependencies.filter(e => e.topicId === t.id && e.strength === 'hard').map(e => e.prerequisiteId).filter(id => data.topics.some(p => p.id === id && p.grade <= t.grade) && trainer.bank[id]?.length);
+      skills[t.id] = { name: t.name, topicId: t.id, grade: t.grade, dimension: null, prerequisites, curriculum: true };
+      roots[t.id] = { skill: t.id, label: '“' + t.name + '”的方法或步骤待检查' };
+    }
+  }
+  function topicsForGrade(grade) { return (curriculum?.topics || []).filter(t => t.grade === Number(grade)); }
+  function rememberExposure(state, ids = []) {
+    for (const id of ids.slice(-150)) {
+      try { const q = fromId(String(id).startsWith('aic_') || String(id).startsWith('ai5_') ? id : 'aic_' + id); if ((q.grade || 7) <= (state.grade || 7) && !state.exposed.includes(q.prompt)) state.exposed.push(q.prompt); } catch (_) {}
+    }
+  }
+  function curriculumItem(raw) {
+    const t = skills[raw.topicId], topic = curriculum.topics.find(t => t.id === raw.topicId), level = ['basic', 'standard', 'advanced'].indexOf(raw.difficulty);
+    return { ...raw, id: 'aic_' + raw.id, originalId: raw.id, curriculum: true, skillId: raw.topicId, grade: t.grade, dimension: null, level, b: [-1.3, -.35, .6][level], hints: ['先说说这道题要找什么，哪些条件能用上？', topic.description + ' 请先写出与你这道题有关的一步。', '回看你的这一步：数量、单位或运算关系是否符合题意？先检查这一处，再继续。'], calibration: 'experimental-manual', origin: 'curated-bank' };
+  }
   function configureGraph(dependencies) {
     const graph = new Map(), evidence = [];
     for (const edge of dependencies || []) if (edge.strength === 'hard') { if (!graph.has(edge.topicId)) graph.set(edge.topicId, []); graph.get(edge.topicId).push(edge.prerequisiteId); }
     for (const [id, skill] of Object.entries(skills)) {
+      if (skill.curriculum) { for (const pre of skill.prerequisites) evidence.push({ skillId: id, prerequisiteSkill: pre, path: [id, pre], source: 'knowledge-graph' }); continue; }
       const visited = new Set([skill.topicId]), queue = [[skill.topicId]];
       while (queue.length) {
         const path = queue.shift(); if (path.length > 8) continue;
         for (const next of graph.get(path.at(-1)) || []) {
           if (visited.has(next)) continue; visited.add(next); const route = path.concat(next); queue.push(route);
-          const mapped = Object.keys(skills).find(s => !['verify', 'model'].includes(s) && skills[s].topicId === next && s !== id);
+          const mapped = Object.keys(skills).find(s => !skills[s].curriculum && !['verify', 'model'].includes(s) && skills[s].topicId === next && s !== id);
           if (mapped) { if (!skill.prerequisites.includes(mapped)) skill.prerequisites.push(mapped); evidence.push({ skillId: id, prerequisiteSkill: mapped, path: route, source: 'knowledge-graph' }); }
         }
       }
@@ -43,7 +64,7 @@
     return evidence;
   }
   function blueprint(skill, level, p = {}) {
-    if (!Object.hasOwn(skills, skill) || !Number.isInteger(level) || level < 0 || level > 2) throw Error('invalid blueprint');
+    if (!Object.hasOwn(skills, skill) || skills[skill].curriculum || !Number.isInteger(level) || level < 0 || level > 2) throw Error('invalid blueprint');
     const { a = 3, b = 5, x = 4, context = 'books' } = p;
     if (![a, b, x].every(Number.isInteger) || a < 2 || a > 12 || b < 2 || b > 20 || x < 2 || x > 20 || !['books', 'tickets', 'stationery'].includes(context)) throw Error('invalid parameters');
     let prompt, answer, type = 'numeric', choices, equation, hints, explanation;
@@ -100,7 +121,7 @@
       return q.type === 'choice' && q.choices.length === 3 && q.choices.some(c => c.key === q.answer) && new Set(q.choices.map(c => c.text)).size === 3;
     } catch (_) { return false; }
   }
-  function fromId(id) { const p = String(id).split('_'); if (p.length !== 7 || p[0] !== 'ai5') throw Error('unknown question'); return blueprint(p[1], Number(p[2]), { a: Number(p[3]), b: Number(p[4]), x: Number(p[5]), context: p[6] }); }
+  function fromId(id) { if (String(id).startsWith('aic_')) { const raw = curriculum?.items[String(id).slice(4)]; if (!raw || !curriculum.bank[raw.topicId]?.some(q => q.id === raw.id)) throw Error('unknown question'); return curriculumItem(raw); } const p = String(id).split('_'); if (p.length !== 7 || p[0] !== 'ai5') throw Error('unknown question'); return blueprint(p[1], Number(p[2]), { a: Number(p[3]), b: Number(p[4]), x: Number(p[5]), context: p[6] }); }
   function auditAttempts(attempts) {
     return attempts.map(r => {
       if (r.mode !== 'ai-unit' || r.skillId !== 'distribute' || r.outcome !== 'correct') return r;
@@ -162,10 +183,11 @@
   function reportFacts(state) {
     refreshHypotheses(state);
     const { rows, ...counts } = evidenceSummary(state.attempts || []), active = state.hypotheses.filter(h => !resolvedHypothesis(h)), resolved = state.hypotheses.filter(resolvedHypothesis);
-    const evidenceKey = JSON.stringify([(state.attempts || []).map(r => [r.id, r.outcome, r.assisted, r.repeated, auditAttempts([r])[0].evidenceEligible]), state.hypotheses.map(h => [h.rootId, h.statusCode, h.requiredLevel, h.passingEvidenceIds])]);
+    const task = taskProgress(state);
+    const evidenceKey = JSON.stringify([(state.attempts || []).map(r => [r.id, r.outcome, r.assisted, r.repeated, auditAttempts([r])[0].evidenceEligible]), state.hypotheses.map(h => [h.rootId, h.statusCode, h.requiredLevel, h.passingEvidenceIds]), task && [task.skillId, task.roundStart, task.status, task.passingIds]]);
     const summary = '已记录 ' + counts.total + ' 次作答，其中 ' + counts.independent + ' 道新题独立作答，通过 ' + counts.correct + ' 道。' + (counts.needsReview ? counts.needsReview + ' 条旧记录待复核，已从表现估计中排除。' : '');
-    const advice = active.length ? '接下来先检查“' + skills[active[0].rootId].name + '”，再用同等或更高难度的新题独立验证。' : resolved.length ? '本轮已有卡点通过新题复核。下一次再换新题复习，观察能否保持独立完成。' : '继续积累不同新题的独立作答；提示后完成的题，需要另换新题验证。';
-    return { counts, active: active.length, resolved: resolved.length, evidenceKey, summary, advice };
+    const advice = task ? task.status === 'verified' ? '“' + task.name + '”本次已通过两道新题独立验证。下次换新题复习，观察能否保持。' : task.status === 'paused' || state.finished ? '这次先到这里，“' + task.name + '”还需独立新题验证。下次从这个目标继续，已完成的作答会保留。' : '这次只练“' + task.name + '”：需要时先补基础，再回到原目标，用两道新题独立验证。' : active.length ? '接下来先检查“' + skills[active[0].rootId].name + '”，再用同等或更高难度的新题独立验证。' : resolved.length ? '本轮已有卡点通过新题复核。下一次再换新题复习，观察能否保持独立完成。' : '继续积累不同新题的独立作答；提示后完成的题，需要另换新题验证。';
+    return { counts, active: active.length, resolved: resolved.length, evidenceKey, summary, advice, task };
   }
   function estimate(attempts, skill) {
     const rows = independent(attempts).filter(r => !skill || r.skillId === skill).slice(-30);
@@ -181,7 +203,26 @@
     return dimensions.map(d => { const evidence = rows.filter(r => r.dimension === d.id), n = evidence.length, correct = evidence.filter(r => r.outcome === 'correct').length; return { ...d, n, correct, value: n >= 3 ? Math.round((correct + 1) / (n + 2) * 100) : null, status: n === 0 ? '未覆盖' : n < 3 ? '证据较少' : '实验估计', attempts: evidence.map(r => r.id) }; });
   }
   function create(options = {}) {
-    return { version: 5, id: options.id || 'offline-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10), revision: 0, phase: 'diagnose', attempts: [], events: [], decisions: [], hypotheses: [], exposed: [], current: null, feedback: null, draft: {}, counters: {}, nextPlan: null, finished: false, startedAt: Date.now(), aiEnabled: !!options.aiEnabled, preferredSkill: Object.hasOwn(skills, options.skill) ? options.skill : 'distribute', limit: 24 };
+    const skill = Object.hasOwn(skills, options.skill) ? options.skill : 'distribute';
+    return { version: 5, id: options.id || 'offline-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10), revision: 0, phase: 'diagnose', attempts: [], events: [], decisions: [], hypotheses: [], exposed: [], current: null, feedback: null, draft: {}, counters: {}, nextPlan: null, finished: false, startedAt: Date.now(), aiEnabled: !!options.aiEnabled, preferredSkill: skill, grade: skills[skill].grade || 7, roundStart: 0, goal: { skillId: skill, level: 1, requiredPasses: 2, maxAttempts: 8 }, limit: 8 };
+  }
+  function taskProgress(state) {
+    if (!state.goal || !Object.hasOwn(skills, state.goal.skillId)) return null;
+    const goal = state.goal, roundStart = state.roundStart || 0, attempts = auditAttempts(state.attempts || []);
+    const eligible = new Set(independent(attempts).map(r => r.id));
+    let passingIds = [];
+    for (const r of attempts.slice(roundStart)) {
+      if (r.skillId !== goal.skillId) continue;
+      if (eligible.has(r.id) && r.outcome === 'correct' && itemLevel(r) >= goal.level) passingIds.push(r.id);
+      else passingIds = [];
+    }
+    const used = attempts.length - roundStart, passed = Math.min(goal.requiredPasses, passingIds.length);
+    return { ...goal, grade: state.grade || 7, roundStart, name: skills[goal.skillId].name, used, passed, passingIds, status: passed >= goal.requiredPasses ? 'verified' : used >= goal.maxAttempts ? 'paused' : 'working' };
+  }
+  function taskFinish(state) {
+    const task = taskProgress(state);
+    if (!task || task.status === 'working') return null;
+    return { action: 'finish', targetSkill: task.skillId, level: task.level, reason: task.status === 'verified' ? '本次目标已通过两道新题独立验证，先看小结，下次再复习。' : '本次已记录 ' + task.used + ' 次作答，先停下来看看卡点；还未完成独立验证，下次继续。' };
   }
   function levelFor(state, skill, preferred) {
     if (Number.isInteger(preferred)) return clamp(preferred, 0, 2);
@@ -192,6 +233,13 @@
   function pick(state, skill, stage, level, generated) {
     const used = new Set(state.exposed), start = state.counters[skill] || 0;
     let q;
+    if (skills[skill]?.curriculum) {
+      const pool = (curriculum.bank[skill] || []).filter(raw => !used.has(raw.prompt));
+      const eligible = stage === 'retest' && skill === state.goal?.skillId ? pool.filter(raw => ['basic', 'standard', 'advanced'].indexOf(raw.difficulty) >= state.goal.level) : pool;
+      eligible.sort((a, b) => Math.abs(['basic', 'standard', 'advanced'].indexOf(a.difficulty) - level) - Math.abs(['basic', 'standard', 'advanced'].indexOf(b.difficulty) - level));
+      if (eligible.length) q = curriculumItem(eligible[0]);
+      else { state.finished = true; state.finishReason = '这个目标可用的独立新题不足，先保留记录；尚不能据此宣布本次目标已验证。'; return null; }
+    }
     if (generated) { try { q = blueprint(skill, level, generated); if (used.has(q.prompt)) q = null; else q.origin = 'ai-parameters'; } catch (_) {} }
     for (let n = start; !q && n < start + 120; n++) {
       const params = { a: 2 + n % 11, b: 2 + Math.floor(n / 3) % 19, x: 2 + n % 19, context: ['books', 'tickets', 'stationery'][n % 3] };
@@ -206,6 +254,8 @@
   function next(state) {
     if (state.finished) return null;
     if (state.current && !state.feedback) return state.current.question;
+    const terminal = taskFinish(state);
+    if (terminal) { state.finished = true; state.finishReason = terminal.reason; return null; }
     if (state.attempts.length >= state.limit) { state.finished = true; state.finishReason = '本轮学习已完成，下一次可以继续验证与巩固。'; return null; }
     const plan = state.nextPlan;
     if (plan?.action === 'finish') { state.finished = true; state.finishReason = plan.reason; return null; }
@@ -220,16 +270,22 @@
   function candidates(state) {
     const last = state.attempts.at(-1), q = state.current?.question;
     if (!last || !q) return [];
+    const terminal = taskFinish(state);
+    if (terminal) return [terminal];
     const own = { targetSkill: last.skillId }, list = [];
     if (last.outcome === 'not_learned') return [{ action: 'hint', ...own, level: 0 }];
     if (last.outcome === 'skip') return [{ action: 'probe', ...own, level: 0 }, { action: 'practice', ...own, level: q.level }];
     if (last.outcome === 'wrong') {
-      list.push({ action: 'probe', ...own, level: 0 }, ...skills[last.skillId].prerequisites.map(s => ({ action: 'prerequisite', targetSkill: s, level: 0 })), { action: 'hint', ...own, level: q.level });
+      list.push({ action: 'probe', ...own, level: state.goal && last.skillId === 'distribute' ? Math.max(1, q.level) : 0 }, ...skills[last.skillId].prerequisites.map(s => ({ action: 'prerequisite', targetSkill: s, level: 0 })), { action: 'hint', ...own, level: q.level });
     } else if (last.assisted || last.repeated) list.push({ action: 'retest', ...own, level: q.level });
     else {
       const recent = independent(state.attempts).filter(r => r.skillId === last.skillId).slice(-3), enough = recent.length >= 2 && recent.slice(-2).every(r => r.outcome === 'correct');
       list.push({ action: 'practice', ...own, level: levelFor(state, last.skillId) }, { action: 'retest', ...own, level: q.level });
-      if (enough) {
+      if (state.goal) {
+        if (last.skillId === state.goal.skillId) return [{ action: 'retest', ...own, level: state.goal.level }];
+        list.push({ action: 'retest', targetSkill: state.goal.skillId, level: state.goal.level });
+      }
+      if (enough && !state.goal) {
         list.push({ action: 'challenge', ...own, level: Math.min(2, q.level + 1) });
         const untested = targetSkills.find(s => !independent(state.attempts).some(r => r.skillId === s));
         if (untested) list.push({ action: 'probe', targetSkill: untested, level: 1 });
@@ -239,17 +295,18 @@
         if (prior) list.push({ action: 'retest', targetSkill: prior.skillId, level: 0 });
       }
     }
-    if (state.attempts.length >= state.limit - 1) list.push({ action: 'finish', ...own, level: 0 });
+    if (!state.goal && state.attempts.length >= state.limit - 1) list.push({ action: 'finish', ...own, level: 0 });
     return list.filter((p, i, a) => a.findIndex(x => x.action === p.action && x.targetSkill === p.targetSkill && x.level === p.level) === i);
   }
   function localPlan(state) {
     const last = state.attempts.at(-1), options = candidates(state);
     if (!options.length) throw Error('no teaching decision');
     let choice = options[0];
+    if (choice.action === 'finish') return { ...choice, source: 'rules', evidenceIds: [last.id], rootId: null };
     if (last.outcome === 'wrong' && last.stage === 'probe') choice = options.find(p => p.action === 'prerequisite') || options.find(p => p.action === 'hint') || choice;
     if (last.outcome === 'wrong' && last.steps && /括号|\(/.test(last.steps)) choice = options.find(p => p.targetSkill === 'distribute') || choice;
     if (last.outcome === 'correct' && !last.assisted) choice = options.find(p => p.action === 'retest' && p.targetSkill !== last.skillId) || options.find(p => p.action === 'probe' && p.targetSkill !== last.skillId) || options.find(p => p.action === 'challenge') || choice;
-    const reason = last.outcome === 'not_learned' ? '先了解这个方法，再用新题练习。' : last.outcome === 'skip' ? '先做一个更短的检查，看看卡在哪一步。' : last.assisted ? '这次获得了提示，下一题换个数独立试一次。' : last.outcome === 'wrong' ? last.steps ? '结合这一步的作答，先用小检查确认具体卡点。' : '只有最终答案还不能确定错因，先用一个小检查补充线索。' : '这一步独立完成了，接下来换题继续确认和拓展。';
+    const reason = state.goal && last.outcome === 'correct' && !last.assisted ? choice.targetSkill !== last.skillId ? '这个基础有了新线索，现在回到本次目标，用新题检查能否独立完成。' : '这道题独立完成了，再换一道新题验证本次目标。' : last.outcome === 'not_learned' ? '先了解这个方法，再用新题练习。' : last.outcome === 'skip' ? '先做一个更短的检查，看看卡在哪一步。' : last.assisted ? '这次获得了提示，下一题换个数独立试一次。' : last.outcome === 'wrong' ? last.steps ? '结合这一步的作答，先用小检查确认具体卡点。' : '只有最终答案还不能确定错因，先用一个小检查补充线索。' : '这一步独立完成了，接下来换题继续确认和拓展。';
     return { ...choice, reason, source: 'rules', evidenceIds: [last.id], rootId: last.outcome === 'wrong' ? last.skillId : null };
   }
   function applyPlan(state, plan) {
@@ -275,11 +332,12 @@
     if (!state.current || state.feedback || state.finished) throw Error('没有可提交的题目。');
     const c = state.current, q = c.question;
     if (outcomeOverride && !['skip', 'not_learned'].includes(outcomeOverride)) throw Error('invalid outcome');
-    const judged = outcomeOverride ? null : MathCheck.judge(q, answer);
+    const rawVerdict = outcomeOverride ? null : q.curriculum ? curriculumJudge.judgeQuestion(curriculum.items[q.originalId], answer) : MathCheck.judge(q, answer);
+    const judged = rawVerdict?.verdict === 'manual' ? { verdict: 'invalid' } : rawVerdict;
     const verdict = outcomeOverride || judged.verdict;
     if (verdict === 'incomplete') throw Error(judged.message);
     if (verdict === 'invalid') throw Error(q.type === 'expression' ? '请填写化简后的式子，例如 -x + 3。' : q.type === 'choice' ? '请先选择一个选项。' : '请填写数值或分数，例如 1/2。');
-    const row = { id: state.id + '-a' + (state.attempts.length + 1), mode: 'ai-unit', sessionId: state.id, questionId: q.id, contentKey: q.type + '|' + q.prompt.replace(/\s/g, ''), topicId: q.topicId, skillId: q.skillId, dimension: q.dimension, stage: c.stage, difficulty: q.difficulty, itemLevel: q.level, itemB: q.b, calibration: q.calibration, outcome: verdict, userAnswer: String(answer).slice(0, 180), steps: String(steps).slice(0, 1000), assisted: c.hintCount > 0 || c.revealed || c.retry, hintCount: c.hintCount, revealed: c.revealed, repeated: c.retry || state.attempts.some(r => r.questionId === q.id), elapsedMs: clamp(Number(activeMs) || 0, 0, 1800000), at: Date.now(), origin: q.origin || 'validated-template', assessmentVersion: 1, evidenceEligible: true, goalComplete: true };
+    const row = { id: state.id + '-a' + (state.attempts.length + 1), mode: 'ai-unit', sessionId: state.id, questionId: q.id, contentKey: q.type + '|' + q.prompt.replace(/\s/g, ''), topicId: q.topicId, skillId: q.skillId, grade: state.grade || 7, dimension: q.dimension, stage: c.stage, difficulty: q.difficulty, itemLevel: q.level, itemB: q.b, calibration: q.calibration, outcome: verdict, userAnswer: String(answer).slice(0, 180), steps: String(steps).slice(0, 1000), assisted: c.hintCount > 0 || c.revealed || c.retry, hintCount: c.hintCount, revealed: c.revealed, repeated: c.retry || state.attempts.some(r => r.questionId === q.id), elapsedMs: clamp(Number(activeMs) || 0, 0, 1800000), at: Date.now(), origin: q.origin || 'validated-template', assessmentVersion: 1, evidenceEligible: true, goalComplete: true };
     state.attempts.push(row); state.feedback = { record: row, label: verdict === 'correct' ? row.assisted ? '提示后完成' : '独立完成' : verdict === 'wrong' ? '先保留这条线索' : verdict === 'skip' ? '先做一个小检查' : '先了解这个方法', diagnosis: null };
     refreshHypotheses(state); state.revision++; return row;
   }
@@ -302,7 +360,7 @@
     return state;
   }
   function view(state) {
-    if (state.current?.question?.id?.startsWith('ai5_')) {
+    if (state.current?.question?.id?.startsWith('ai5_') || state.current?.question?.id?.startsWith('aic_')) {
       const previous = state.current.question;
       state.current.question = { ...fromId(previous.id), origin: previous.origin };
     }
@@ -312,7 +370,7 @@
     const publicQ = q ? { id: q.id, skillId: q.skillId, topicId: q.topicId, level: q.level, difficulty: q.difficulty, type: q.type, prompt: q.prompt, choices: q.choices, origin: q.origin || 'validated-template' } : null;
     const showAnswer = c?.revealed || state.feedback?.record.outcome === 'correct' && state.feedback.record.evidenceEligible !== false;
     if (showAnswer && publicQ) { publicQ.answer = q.answer; publicQ.explanation = q.explanation; }
-    return { id: state.id, revision: state.revision, phase: state.phase, finished: state.finished, finishReason: state.finishReason, aiEnabled: state.aiEnabled, question: publicQ, hintCount: c?.hintCount || 0, hint: c?.aiHint || (c?.hintCount ? q.hints[c.hintCount - 1] : null), hintSource: c?.hintSource || 'rules', report, reportStale: !!state.report && !report, facts, revealed: !!c?.revealed, retrying: !!c?.retry, feedback: state.feedback, nextPlan: state.nextPlan, attempts: state.attempts, decisions: state.decisions, hypotheses: state.hypotheses, dimensions: profile(state.attempts), estimate: estimate(state.attempts), targetBand: [.65, .75], calibration: '实验参数，未经学生数据校准' };
+    return { id: state.id, revision: state.revision, grade: state.grade || 7, phase: state.phase, finished: state.finished, finishReason: state.finishReason, aiEnabled: state.aiEnabled, goal: state.goal, roundStart: state.roundStart, task: facts.task, question: publicQ, hintCount: c?.hintCount || 0, hint: c?.aiHint || (c?.hintCount ? q.hints[c.hintCount - 1] : null), hintSource: c?.hintSource || 'rules', report, reportStale: !!state.report && !report, facts, revealed: !!c?.revealed, retrying: !!c?.retry, feedback: state.feedback, nextPlan: state.nextPlan, attempts: state.attempts, decisions: state.decisions, hypotheses: state.hypotheses, dimensions: profile(state.attempts), estimate: estimate(state.attempts), targetBand: [.65, .75], calibration: '实验参数，未经学生数据校准' };
   }
-  return { dimensions, skills, roots, targetSkills, actionNames, levelNames, configureGraph, blueprint, fromId, validateQuestion, independent, auditAttempts, evidenceSummary, refreshEvidence, refreshHypotheses, reportFacts, hypothesisNames, estimate, profile, create, pick, next, candidates, localPlan, applyPlan, record, hint, reveal, retry, view, sigmoid };
+  return { dimensions, skills, roots, targetSkills, actionNames, levelNames, configureGraph, configureCurriculum, topicsForGrade, rememberExposure, blueprint, fromId, validateQuestion, independent, auditAttempts, evidenceSummary, refreshEvidence, refreshHypotheses, reportFacts, hypothesisNames, taskProgress, estimate, profile, create, pick, next, candidates, localPlan, applyPlan, record, hint, reveal, retry, view, sigmoid };
 });

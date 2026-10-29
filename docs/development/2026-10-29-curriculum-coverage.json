@@ -1,0 +1,90 @@
+{
+  "version": "0.6.0",
+  "grades": [
+    {
+      "grade": 1,
+      "topics": 36,
+      "canonicalItems": 144,
+      "insufficientIndependentRetests": []
+    },
+    {
+      "grade": 2,
+      "topics": 24,
+      "canonicalItems": 96,
+      "insufficientIndependentRetests": []
+    },
+    {
+      "grade": 3,
+      "topics": 35,
+      "canonicalItems": 140,
+      "insufficientIndependentRetests": []
+    },
+    {
+      "grade": 4,
+      "topics": 36,
+      "canonicalItems": 144,
+      "insufficientIndependentRetests": []
+    },
+    {
+      "grade": 5,
+      "topics": 45,
+      "canonicalItems": 180,
+      "insufficientIndependentRetests": []
+    },
+    {
+      "grade": 6,
+      "topics": 40,
+      "canonicalItems": 160,
+      "insufficientIndependentRetests": [
+        {
+          "topicId": "cnm_p210",
+          "name": "比例的意义和基本性质",
+          "eligibleItems": 1
+        }
+      ]
+    },
+    {
+      "grade": 7,
+      "topics": 119,
+      "canonicalItems": 1082,
+      "insufficientIndependentRetests": [
+        {
+          "topicId": "cnm_001",
+          "name": "正数与负数的概念",
+          "eligibleItems": 1
+        },
+        {
+          "topicId": "cnm_002",
+          "name": "用正负数表示相反意义的量",
+          "eligibleItems": 1
+        },
+        {
+          "topicId": "cnm_003",
+          "name": "有理数的分类",
+          "eligibleItems": 1
+        }
+      ]
+    },
+    {
+      "grade": 8,
+      "topics": 114,
+      "canonicalItems": 508,
+      "insufficientIndependentRetests": [
+        {
+          "topicId": "cnm_120",
+          "name": "全等图形与全等三角形",
+          "eligibleItems": 1
+        }
+      ]
+    },
+    {
+      "grade": 9,
+      "topics": 82,
+      "canonicalItems": 360,
+      "insufficientIndependentRetests": []
+    }
+  ],
+  "totalTopics": 531,
+  "totalCanonicalItems": 2814,
+  "note": "Counts describe runnable engineering coverage. They do not establish question-topic alignment, teacher review, calibrated difficulty, cognitive dimensions or learning effectiveness."
+}
