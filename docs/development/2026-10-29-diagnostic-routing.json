@@ -1,0 +1,100 @@
+{
+  "version": "0.6.6",
+  "automatedChecks": 215,
+  "newDiagnosticChecks": 17,
+  "topicFailurePaths": 531,
+  "realModelGradeDecisions": [
+    {
+      "grade": 1,
+      "passed": true,
+      "topic": "cnm_p002",
+      "provider": "DeepSeek",
+      "action": "prerequisite",
+      "target": "cnm_p001",
+      "pendingCause": true,
+      "forcedReturnWithoutExtraCall": true
+    },
+    {
+      "grade": 2,
+      "passed": true,
+      "topic": "cnm_p037",
+      "provider": "DeepSeek",
+      "action": "prerequisite",
+      "target": "cnm_p022",
+      "pendingCause": true,
+      "forcedReturnWithoutExtraCall": true
+    },
+    {
+      "grade": 3,
+      "passed": true,
+      "topic": "cnm_p061",
+      "provider": "DeepSeek",
+      "action": "prerequisite",
+      "target": "cnm_p028",
+      "pendingCause": true,
+      "forcedReturnWithoutExtraCall": true
+    },
+    {
+      "grade": 4,
+      "passed": true,
+      "topic": "cnm_p096",
+      "provider": "DeepSeek",
+      "action": "prerequisite",
+      "target": "cnm_p053",
+      "pendingCause": true,
+      "forcedReturnWithoutExtraCall": true
+    },
+    {
+      "grade": 5,
+      "passed": true,
+      "topic": "cnm_p132",
+      "provider": "DeepSeek",
+      "action": "prerequisite",
+      "target": "cnm_p074",
+      "pendingCause": true,
+      "forcedReturnWithoutExtraCall": true
+    },
+    {
+      "grade": 6,
+      "passed": true,
+      "topic": "cnm_p177",
+      "provider": "DeepSeek",
+      "action": "prerequisite",
+      "target": "cnm_p173",
+      "pendingCause": true,
+      "forcedReturnWithoutExtraCall": true
+    },
+    {
+      "grade": 7,
+      "passed": true,
+      "topic": "cnm_001",
+      "provider": "DeepSeek",
+      "action": "prerequisite",
+      "target": "cnm_p201",
+      "pendingCause": true,
+      "forcedReturnWithoutExtraCall": true
+    },
+    {
+      "grade": 8,
+      "passed": true,
+      "topic": "cnm_110",
+      "provider": "DeepSeek",
+      "action": "prerequisite",
+      "target": "cnm_p122",
+      "pendingCause": true,
+      "forcedReturnWithoutExtraCall": true
+    },
+    {
+      "grade": 9,
+      "passed": true,
+      "topic": "cnm_219",
+      "provider": "DeepSeek",
+      "action": "probe",
+      "target": "cnm_219",
+      "pendingCause": true
+    }
+  ],
+  "realReportPassed": true,
+  "teacherReviewed": false,
+  "realStudentEffectValidated": false
+}

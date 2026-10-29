@@ -34,7 +34,7 @@ async function main() {
     await request('next'); await assert.rejects(request('answer', { questionId: v.question.id, answer: '999', outcome: 'correct' }), /invalid outcome/);
   });
   await test('Invalid model parameters are discarded while a valid decision remains usable', async () => {
-    parametersInvalid = true; await request('answer', { questionId: v.question.id, answer: '999' }); assert.equal(v.nextPlan.source, 'ai'); assert.equal(v.nextPlan.parameters, undefined); await request('next'); assert.equal(v.question.origin, 'validated-template'); parametersInvalid = false;
+    v = await handler('start', { aiEnabled: true }); parametersInvalid = true; await request('answer', { questionId: v.question.id, answer: '999' }); assert.equal(v.nextPlan.source, 'ai'); assert.equal(v.nextPlan.parameters, undefined); await request('next'); assert.equal(v.question.origin, 'validated-template'); parametersInvalid = false;
   });
   await test('Model failure preserves the actual answer and transparently uses local decisions', async () => {
     shouldFail = true; await request('answer', { questionId: v.question.id, answer: '999' }); assert.equal(v.nextPlan.source, 'rules'); assert.match(v.nextPlan.fallbackReason, /模型/); assert.ok(!JSON.stringify(v).includes('fixture-secret')); shouldFail = false;

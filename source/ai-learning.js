@@ -21,7 +21,7 @@
     model: { skill: 'model', label: '题目中的等量关系待检查' }
   };
   const targetSkills = ['distribute', 'balance', 'solve', 'verify', 'model'];
-  const actionNames = { probe: '做一个小检查', prerequisite: '先补相关基础', hint: '用提示继续这一步', practice: '同层换题巩固', challenge: '试试更高梯度', retest: '换新题独立验证', finish: '结束并查看本轮记录' };
+  const actionNames = { probe: '做一个小检查', prerequisite: '检查相关基础', hint: '用提示继续这一步', practice: '同层换题巩固', challenge: '试试更高梯度', retest: '换新题独立验证', finish: '结束并查看本轮记录' };
   const levelNames = ['基础巩固', '标准运用', '进阶挑战'];
   const sigmoid = x => 1 / (1 + Math.exp(-x));
   const clamp = (x, min, max) => Math.max(min, Math.min(max, x));
@@ -206,7 +206,7 @@
     const evidenceKey = JSON.stringify([(state.attempts || []).map(r => [r.id, r.outcome, r.assisted, r.repeated, auditAttempts([r])[0].evidenceEligible]), state.hypotheses.map(h => [h.rootId, h.statusCode, h.requiredLevel, h.passingEvidenceIds]), task && [task.skillId, task.roundStart, task.status, task.passingIds]]);
     const summary = '已记录 ' + counts.total + ' 次作答，其中 ' + counts.independent + ' 道新题独立作答，通过 ' + counts.correct + ' 道。' + (counts.needsReview ? counts.needsReview + ' 条旧记录待复核，已从表现估计中排除。' : '');
     const advice = task ? task.status === 'verified' ? '“' + task.name + '”本次已通过两道新题独立验证。下次换新题复习，观察能否保持。' : task.status === 'paused' || state.finished ? '这次先到这里，“' + task.name + '”还需独立新题验证。下次从这个目标继续，已完成的作答会保留。' : '这次只练“' + task.name + '”：需要时先补基础，再回到原目标，用两道新题独立验证。' : active.length ? '接下来先检查“' + skills[active[0].rootId].name + '”，再用同等或更高难度的新题独立验证。' : resolved.length ? '本轮已有卡点通过新题复核。下一次再换新题复习，观察能否保持独立完成。' : '继续积累不同新题的独立作答；提示后完成的题，需要另换新题验证。';
-    return { counts, active: active.length, resolved: resolved.length, evidenceKey, summary, advice, task };
+    return { counts, active: active.length, resolved: resolved.length, evidenceKey, summary, advice, task, diagnosticChecks: diagnosticContext(state).checks };
   }
   function estimate(attempts, skill) {
     const rows = independent(attempts).filter(r => !skill || r.skillId === skill).slice(-30);
@@ -280,26 +280,67 @@
     const terminal = taskFinish(state);
     if (terminal) { state.finished = true; state.finishReason = terminal.reason; return null; }
     if (state.attempts.length >= state.limit) { state.finished = true; state.finishReason = '本轮学习已完成，下一次可以继续验证与巩固。'; return null; }
-    const plan = state.nextPlan;
+    let plan = state.nextPlan;
+    if (plan && state.feedback && state.feedback.record.evidenceEligible !== false && !candidates(state).some(c => c.action === plan.action && c.targetSkill === plan.targetSkill && c.level === plan.level)) {
+      plan = applyPlan(state, localPlan(state));
+      state.events.push({ type: 'teaching-route-refreshed', at: Date.now() });
+    }
     if (plan?.action === 'finish') { state.finished = true; state.finishReason = plan.reason; return null; }
     if (plan) {
       state.nextPlan = null;
       const q = pick(state, plan.targetSkill, plan.action === 'hint' ? 'practice' : plan.action, levelFor(state, plan.targetSkill, plan.level), plan.parameters);
+      if (q) state.current.purpose = plan.purpose || null;
       if (q && plan.action === 'hint') hint(state);
       return q;
     }
     return pick(state, state.preferredSkill, 'diagnose', 1);
+  }
+  function hasFreshCheck(state, skill) {
+    if (!skills[skill]?.curriculum) return true;
+    const used = new Set(state.exposed || []);
+    if ((curriculum.bank[skill] || []).some(q => !used.has(q.prompt))) return true;
+    if (variants?.supported.includes(skill)) for (let n = 0; n < 120; n++) if (!used.has(variation(skill, 0, n).prompt)) return true;
+    return false;
+  }
+  function diagnosticContext(state) {
+    const attempts = auditAttempts(state.attempts || []), rows = independent(attempts), last = attempts.at(-1);
+    const focusSkill = state.goal?.skillId || last?.skillId || state.preferredSkill;
+    const prerequisiteSkills = skills[focusSkill]?.prerequisites || [];
+    const ids = [...new Set([focusSkill, ...prerequisiteSkills, last?.skillId])].filter(id => Object.hasOwn(skills, id));
+    const checks = ids.map(skillId => {
+      const evidence = rows.filter(r => r.skillId === skillId).slice(-6), lastWrong = evidence.findLast(r => r.outcome === 'wrong');
+      const minimumLevel = Math.max(skillId === state.goal?.skillId ? state.goal.level : 0, lastWrong ? itemLevel(lastWrong) : 0);
+      const after = lastWrong ? evidence.indexOf(lastWrong) : -1;
+      const passingIds = evidence.filter((r, i) => i > after && r.outcome === 'correct' && itemLevel(r) >= minimumLevel).map(r => r.id);
+      const observed = attempts.some(r => r.skillId === skillId && r.evidenceEligible !== false);
+      const status = passingIds.length >= 2 ? 'checks_passed' : lastWrong ? 'needs_check' : passingIds.length ? 'one_pass' : observed ? 'no_independent_check' : 'unseen';
+      return { skillId, name: skills[skillId].name, relation: skillId === focusSkill ? 'goal' : prerequisiteSkills.includes(skillId) ? 'prerequisite' : 'current', status, label: { checks_passed: '两道新题检查通过', needs_check: '独立检查仍有困难', one_pass: '一道新题检查通过', no_independent_check: '还需独立新题检查', unseen: '尚未检查' }[status], minimumLevel, independent: evidence.length, wrong: evidence.filter(r => r.outcome === 'wrong').length, passingIds, evidenceIds: evidence.map(r => r.id) };
+    });
+    const round = attempts.slice(state.roundStart || 0), used = state.goal ? round.filter(r => r.skillId !== focusSkill).length : 0;
+    return { focusSkill, prerequisiteSkills, checks, prerequisiteBudget: 2, prerequisiteUsed: used, prerequisiteRemaining: Math.max(0, 2 - used), attemptsRemaining: state.goal ? Math.max(0, state.goal.maxAttempts - round.length) : Math.max(0, (state.limit || 8) - attempts.length) };
+  }
+  function diagnosticRoots(state) {
+    const last = state.attempts.at(-1); if (!last) return [];
+    const context = diagnosticContext(state), ids = [last.skillId, ...(skills[last.skillId]?.prerequisites || [])];
+    return ids.filter(id => context.checks.some(c => c.skillId === id && c.status !== 'checks_passed') && (id === last.skillId || !state.goal || context.prerequisiteRemaining > 0));
   }
   function candidates(state) {
     const last = state.attempts.at(-1), q = state.current?.question;
     if (!last || !q) return [];
     const terminal = taskFinish(state);
     if (terminal) return [terminal];
+    const context = diagnosticContext(state), goal = state.goal;
     const own = { targetSkill: last.skillId }, list = [];
+    if (goal && last.skillId !== goal.skillId) {
+      const back = { action: 'retest', targetSkill: goal.skillId, level: goal.level, purpose: '回到“' + skills[goal.skillId].name + '”，用新题检查能否独立完成。' };
+      if (!context.prerequisiteRemaining || context.attemptsRemaining <= goal.requiredPasses || last.outcome === 'correct' && !last.assisted && !last.repeated) return [back];
+      const step = { action: last.outcome === 'correct' ? 'retest' : 'hint', ...own, level: 0, purpose: '只补“' + skills[last.skillId].name + '”这一步，随后回到“' + skills[goal.skillId].name + '”。' };
+      return [step, back];
+    }
     if (last.outcome === 'not_learned') return [{ action: 'hint', ...own, level: 0 }];
     if (last.outcome === 'skip') return [{ action: 'probe', ...own, level: 0 }, { action: 'practice', ...own, level: q.level }];
     if (last.outcome === 'wrong') {
-      list.push({ action: 'probe', ...own, level: state.goal && last.skillId === 'distribute' ? Math.max(1, q.level) : 0 }, ...skills[last.skillId].prerequisites.map(s => ({ action: 'prerequisite', targetSkill: s, level: 0 })), { action: 'hint', ...own, level: q.level });
+      list.push({ action: 'probe', ...own, level: state.goal && last.skillId === 'distribute' ? Math.max(1, q.level) : 0 }, ...skills[last.skillId].prerequisites.filter(s => !goal || context.prerequisiteRemaining > 0 && context.attemptsRemaining > goal.requiredPasses && hasFreshCheck(state, s) && context.checks.find(c => c.skillId === s)?.status !== 'checks_passed').map(s => ({ action: 'prerequisite', targetSkill: s, level: 0, purpose: '先检查“' + skills[s].name + '”是否影响本题，再回到“' + skills[goal?.skillId || last.skillId].name + '”。' })), { action: 'hint', ...own, level: q.level });
     } else if (last.assisted || last.repeated) list.push({ action: 'retest', ...own, level: q.level });
     else {
       const recent = independent(state.attempts).filter(r => r.skillId === last.skillId).slice(-3), enough = recent.length >= 2 && recent.slice(-2).every(r => r.outcome === 'correct');
@@ -329,17 +370,19 @@
     if (last.outcome === 'wrong' && last.stage === 'probe') choice = options.find(p => p.action === 'prerequisite') || options.find(p => p.action === 'hint') || choice;
     if (last.outcome === 'wrong' && last.steps && /括号|\(/.test(last.steps)) choice = options.find(p => p.targetSkill === 'distribute') || choice;
     if (last.outcome === 'correct' && !last.assisted) choice = options.find(p => p.action === 'retest' && p.targetSkill !== last.skillId) || options.find(p => p.action === 'probe' && p.targetSkill !== last.skillId) || options.find(p => p.action === 'challenge') || choice;
-    const reason = state.goal && last.outcome === 'correct' && !last.assisted ? choice.targetSkill !== last.skillId ? '这个基础有了新线索，现在回到本次目标，用新题检查能否独立完成。' : '这道题独立完成了，再换一道新题验证本次目标。' : last.outcome === 'not_learned' ? '先了解这个方法，再用新题练习。' : last.outcome === 'skip' ? '先做一个更短的检查，看看卡在哪一步。' : last.assisted ? '这次获得了提示，下一题换个数独立试一次。' : last.outcome === 'wrong' ? last.steps ? '结合这一步的作答，先用小检查确认具体卡点。' : '只有最终答案还不能确定错因，先用一个小检查补充线索。' : '这一步独立完成了，接下来换题继续确认和拓展。';
-    return { ...choice, reason, source: 'rules', evidenceIds: [last.id], rootId: last.outcome === 'wrong' ? last.skillId : null };
+    const reason = state.goal && choice.targetSkill === state.goal.skillId && last.skillId !== state.goal.skillId ? last.outcome === 'correct' && !last.assisted ? '这个基础本题独立通过了。现在回到本次目标，用新题检查能否独立完成。' : '这次基础检查先到这里，回到本次目标；需要时用提示，再换新题独立验证。' : choice.action === 'prerequisite' ? '先检查“' + skills[choice.targetSkill].name + '”，确认这个基础是否影响本次目标。' : state.goal && last.outcome === 'correct' && !last.assisted ? choice.targetSkill !== last.skillId ? '这个基础有了新线索，现在回到本次目标，用新题检查能否独立完成。' : '这道题独立完成了，再换一道新题验证本次目标。' : last.outcome === 'not_learned' ? '先了解这个方法，再用新题练习。' : last.outcome === 'skip' ? '先做一个更短的检查，看看卡在哪一步。' : last.assisted ? '这次获得了提示，下一题换个数独立试一次。' : last.outcome === 'wrong' ? last.steps ? '结合这一步的作答，先用小检查确认具体卡点。' : '只有最终答案还不能确定错因，先用一个小检查补充线索。' : '这一步独立完成了，接下来换题继续确认和拓展。';
+    return { ...choice, reason, source: 'rules', evidenceIds: [last.id], rootId: last.outcome === 'wrong' && diagnosticRoots(state).includes(choice.action === 'prerequisite' ? choice.targetSkill : last.skillId) ? choice.action === 'prerequisite' ? choice.targetSkill : last.skillId : null };
   }
   function applyPlan(state, plan) {
     const allowed = candidates(state), choice = allowed.find(c => c.action === plan.action && c.targetSkill === plan.targetSkill && c.level === plan.level);
     if (!choice) throw Error('decision outside allowed actions');
     if (typeof plan.reason !== 'string' || !plan.reason.trim()) throw Error('missing decision reason');
     const ids = Array.isArray(plan.evidenceIds) ? plan.evidenceIds : [];
-    if (!ids.length || ids.some(id => !state.attempts.some(r => r.id === id))) throw Error('unknown evidence');
+    if (!ids.length || !ids.includes(state.attempts.at(-1).id) || ids.some(id => !auditAttempts(state.attempts).some(r => r.id === id && r.evidenceEligible !== false))) throw Error('unknown evidence');
+    if (plan.rootId != null && !diagnosticRoots(state).includes(plan.rootId)) throw Error('diagnosis outside current checks');
     const safe = { ...choice, reason: plan.reason.slice(0, 220), source: plan.source === 'ai' ? 'ai' : 'rules', provider: plan.provider || null, evidenceIds: ids, rootId: Object.hasOwn(roots, plan.rootId) ? plan.rootId : null, at: Date.now(), estimate: estimate(state.attempts, choice.targetSkill) };
     if (plan.parameters) { safe.parameters = generationParameters(choice.targetSkill, choice.level, plan.parameters); }
+    safe.checkSnapshot = diagnosticContext(state).checks.find(c => c.skillId === safe.targetSkill);
     state.nextPlan = safe; state.decisions.push(safe);
     if (safe.rootId && state.attempts.at(-1).outcome === 'wrong') {
       let hypothesis = state.hypotheses.find(h => h.rootId === safe.rootId);
@@ -401,10 +444,10 @@
     }
     const facts = reportFacts(state), report = state.report?.evidenceKey === facts.evidenceKey ? state.report : null;
     const c = state.current, q = c?.question;
-    const publicQ = q ? { id: q.id, contentRevision: q.contentRevision || 0, skillId: q.skillId, topicId: q.topicId, level: q.level, difficulty: q.difficulty, type: q.type, prompt: q.prompt, choices: q.choices, origin: q.origin || 'validated-template' } : null;
+    const publicQ = q ? { id: q.id, contentRevision: q.contentRevision || 0, skillId: q.skillId, topicId: q.topicId, level: q.level, difficulty: q.difficulty, type: q.type, prompt: q.prompt, purpose: c.purpose || null, choices: q.choices, origin: q.origin || 'validated-template' } : null;
     const showAnswer = c?.revealed || state.feedback?.record.outcome === 'correct' && state.feedback.record.evidenceEligible !== false;
     if (showAnswer && publicQ) { publicQ.answer = q.answer; publicQ.explanation = q.explanation; }
     return { id: state.id, revision: state.revision, grade: state.grade || 7, phase: state.phase, finished: state.finished, finishReason: state.finishReason, aiEnabled: state.aiEnabled, goal: state.goal, roundStart: state.roundStart, task: facts.task, question: publicQ, hintCount: c?.hintCount || 0, hint: c?.aiHint || (c?.hintCount ? q.hints[c.hintCount - 1] : null), hintSource: c?.hintSource || 'rules', report, reportStale: !!state.report && !report, facts, revealed: !!c?.revealed, retrying: !!c?.retry, feedback: state.feedback, nextPlan: state.nextPlan, attempts: state.attempts, decisions: state.decisions, hypotheses: state.hypotheses, dimensions: profile(state.attempts), estimate: estimate(state.attempts), targetBand: [.65, .75], calibration: '实验参数，未经学生数据校准' };
   }
-  return { dimensions, skills, roots, targetSkills, actionNames, levelNames, configureGraph, configureCurriculum, topicsForGrade, rememberExposure, generationParameters, blueprint, fromId, validateQuestion, independent, auditAttempts, evidenceSummary, refreshEvidence, refreshHypotheses, reportFacts, hypothesisNames, taskProgress, estimate, profile, create, pick, next, candidates, localPlan, applyPlan, record, hint, reveal, retry, view, sigmoid };
+  return { dimensions, skills, roots, targetSkills, actionNames, levelNames, configureGraph, configureCurriculum, topicsForGrade, rememberExposure, generationParameters, blueprint, fromId, validateQuestion, independent, auditAttempts, evidenceSummary, refreshEvidence, refreshHypotheses, reportFacts, hypothesisNames, taskProgress, estimate, profile, create, pick, next, diagnosticContext, diagnosticRoots, candidates, localPlan, applyPlan, record, hint, reveal, retry, view, sigmoid };
 });
